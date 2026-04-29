@@ -69,6 +69,10 @@ class DataBaseManager:
         "Параметри: table_name - назва таблиці, df - pandas DataFrame"
 
         if 'timestamp' not in df.columns:
+            # Для таблиць без timestamp (наприклад, результатів бектесту) 
+            # просто додаємо всі нові рядки
+            print(f"Записано нових рядків (без перевірки timestamp): {len(df)}")
+            self.conn.execute(f"INSERT INTO {table_name} SELECT * FROM df")
             return
 
         df_to_insert = df.drop_duplicates(subset='timestamp', keep='last')

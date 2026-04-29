@@ -29,9 +29,10 @@ def main():
         db_manager=dbm, 
         table_name=table_name, 
         ngram_length=3, 
-        min_occurrences=20,
-        top_patterns=5, # <--- ДОДАНО ПАРАМЕТР (залишаємо тільки 5 найпопулярніших патернів)
-        force_update=False # Встановіть True, якщо хочете примусово оновити прогнози
+        min_occurrences=150,
+        top_patterns=None, # <--- ДОДАНО ПАРАМЕТР (залишаємо тільки 5 найпопулярніших патернів)
+        force_update=True, # Встановіть True, якщо хочете примусово оновити прогнози
+        prediction_road=2
     )
     
     print(f"NGramAnalyzer успішно ініціалізовано. Час: {time.time() - start_time:.2f} сек.")

@@ -8,8 +8,8 @@ bybit_key = os.getenv("BYBIT_KEY")
 bybit_secret_key = os.getenv("BYBIT_SECRET_KEY")
 massive_key = os.getenv("MASSIVE_KEY")
 
-root_path = "/home/sasha/My/Avi/Code"
-path_to_json_predictions_dir = root_path + "/data/predictions"
+root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+path_to_json_predictions_dir = os.path.join(root_path, "data", "predictions")
 
 def ensure_predictions_dir_exists():
     if not os.path.exists(path_to_json_predictions_dir):
