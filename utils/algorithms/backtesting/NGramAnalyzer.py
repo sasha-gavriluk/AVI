@@ -26,7 +26,8 @@ class NGramAnalyzer(Analyzer):
                  min_occurrences: int = 20,
                  tolerance: int = 1,
                  top_patterns: int = None,
-                 force_update: bool = False):
+                 force_update: bool = False,
+                 prediction_road: int = 1):
         """
         Параметри:
         db_manager: DataBaseManager
@@ -37,6 +38,7 @@ class NGramAnalyzer(Analyzer):
         tolerance: допуск для кластеризації
         top_patterns: скільки найпопулярніших патернів залишити для аналізу (None - всі)
         force_update: чи перегенерувати файл прогнозів примусово
+        prediction_road: розмір дороги прогнозування (кількість токенів у майбутнє)
         """
         
         # Вікно розміром 1, оскільки ми самі збираємо історію токенів по одному
@@ -50,6 +52,7 @@ class NGramAnalyzer(Analyzer):
         self.tolerance = tolerance
         self.top_patterns = top_patterns
         self.force_update = force_update
+        self.prediction_road = prediction_road
         
         self.history = []
         
@@ -72,14 +75,14 @@ class NGramAnalyzer(Analyzer):
     #------------------------------
 
     def _load_or_generate_predictions(self) -> dict:
-        """Перевіряє наявність predictions.json, генерує за потреби, повертає словник прогнозів."""
+        """Перевіряє наявність predictions_road_X.json, генерує за потреби, повертає словник прогнозів."""
         
         pred_dir = ensure_predictions_dir_exists()
-        pred_file = os.path.join(pred_dir, "predictions.json")
+        pred_file = os.path.join(pred_dir, f"predictions_road_{self.prediction_road}.json")
         
         if os.path.exists(pred_file) and not self.force_update:
             try:
-                with open(pred_file, "r") as f:
+                with open(pred_file, "r", encoding='utf-8') as f:
                     print(f"Завантаження існуючих прогнозів з {pred_file}...")
                     return json.load(f)
             except Exception as e:
@@ -92,7 +95,7 @@ class NGramAnalyzer(Analyzer):
         if 'WCE' not in df.columns:
             raise ValueError(f"Колонка 'WCE' відсутня в таблиці {self.table_name}")
             
-        predictor = NGramPredictor(df)
+        predictor = NGramPredictor(df, prediction_road=self.prediction_road)
         predictor._analysis(column_name="WCE", num_tokens=self.ngram_length, top=self.top, min_occurrences=self.min_occurrences, use_fuzzy_logic=True)
         predictor.save_predictions_to_file(filename=pred_file)
         
@@ -189,6 +192,13 @@ class NGramAnalyzer(Analyzer):
         # 3. Якщо патерн знайдено, інтерпретуємо сигнал
         if found_prediction and len(found_prediction) > 0:
             predicted_token = found_prediction[0][0]
+            
+            # Якщо ми прогнозуємо цілу "дорогу" (список токенів), для входу беремо перший
+            if isinstance(predicted_token, (list, tuple)):
+                if len(predicted_token) > 0:
+                    predicted_token = predicted_token[0]
+                else:
+                    return None
             
             if predicted_token.startswith('B'):
                 return 'BUY'

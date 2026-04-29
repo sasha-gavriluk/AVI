@@ -16,8 +16,9 @@ class NGramPredictor:
     # Ініціалізація
     # ----------------------------------
 
-    def __init__(self, data: pd.DataFrame):
+    def __init__(self, data: pd.DataFrame, prediction_road: int = 2):
         self.data = data
+        self.prediction_road = prediction_road
         
 
     # ----------------------------------
@@ -46,11 +47,14 @@ class NGramPredictor:
         trigrams = defaultdict(list)
         pattern_popularity = Counter()
 
-        for i in range(len(column_data) - num_tokens):
+        for i in range(len(column_data) - num_tokens - self.prediction_road + 1):
             history = tuple(column_data[i : i + num_tokens])
-            next_token = column_data[i + num_tokens]
+            if self.prediction_road == 1:
+                next_items = column_data[i + num_tokens]
+            else:
+                next_items = tuple(column_data[i + num_tokens : i + num_tokens + self.prediction_road])
 
-            trigrams[history].append(next_token)
+            trigrams[history].append(next_items)
             pattern_popularity[history] += 1
 
         return trigrams, pattern_popularity
@@ -181,12 +185,15 @@ class NGramPredictor:
     # ----------------------------------
 
     @_handle_error
-    def save_predictions_to_file(self, filename: str = None, fname: str = "predictions.json"):
+    def save_predictions_to_file(self, filename: str = None, fname: str = None):
         """Метод для збереження результатів аналізу у файл predictions: словарь з історіями та їх передбаченнями filename: назва файлу для збереження результатів"""
 
         if not hasattr(self, "predictions"):
             print("Немає результатів для збереження. Виконайте спочатку метод _analysis.")
             return
+
+        if fname is None:
+            fname = f"predictions_road_{self.prediction_road}.json"
 
         if filename is None:
             filename = ensure_predictions_dir_exists() + f"/{fname}"
@@ -196,5 +203,5 @@ class NGramPredictor:
             for history, predicted_token in self.predictions.items()
         }
 
-        with open(filename, "w") as f:
+        with open(filename, "w", encoding='utf-8') as f:
             json.dump(json_ready_predictions, f, indent=4)
