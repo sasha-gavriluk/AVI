@@ -154,15 +154,8 @@ class NGramAnalyzer(Analyzer):
         
         # Оптимізація: перевіряємо, чи є поточна історія (префікс) взагалі перспективною
         if dir_signature not in self.valid_prefixes:
-            # Якщо поточна історія нікуди не веде, немає сенсу її тримати.
-            # Скидаємо історію, але перевіряємо, чи може останній токен бути початком нової історії
-            self.history = [token]
-            parsed_hist = tuple(self._parse_token(t) for t in self.history)
-            dir_signature = tuple(pt[0] if isinstance(pt, tuple) else pt for pt in parsed_hist)
-            
-            if dir_signature not in self.valid_prefixes:
-                self.history = [] # Токен навіть як перший елемент не підходить
-                
+            # Замість агресивного скидання історії просто повертаємо None,
+            # дозволяючи вікну "ковзати" і накопичувати нові токени (наприклад, після D-токенів)
             return None
             
         if len(self.history) < self.ngram_length:
