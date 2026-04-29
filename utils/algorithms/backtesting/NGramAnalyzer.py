@@ -4,8 +4,8 @@ import json
 import pandas as pd
 from collections import defaultdict
 
-from algorithms.backtesting.SignalProvider import Analyzer
-from algorithms.NGramPredictor import NGramPredictor
+from utils.algorithms.backtesting.SignalProvider import Analyzer
+from utils.algorithms.NGramPredictor import NGramPredictor
 from utils.config import ensure_predictions_dir_exists
 
 #==================================

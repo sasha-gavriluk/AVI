@@ -1,7 +1,7 @@
 import pandas as pd
 
-from algorithms.backtesting.BaseSettings import BaseSettings
-from algorithms.backtesting.SignalProvider import Analyzer
+from utils.algorithms.backtesting.BaseSettings import BaseSettings
+from utils.algorithms.backtesting.SignalProvider import Analyzer
 from utils.DataBaseManager import DataBaseManager
 from utils.LaboratoryBacktesterDealWriter import LaboratoryBacktesterDealWriter
 
