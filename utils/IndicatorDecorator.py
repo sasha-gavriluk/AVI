@@ -1,7 +1,7 @@
 import types
 import pandas as pd
 
-from algorithms.WrapCandleEngine import WCE
+from utils.algorithms.WrapCandleEngine import WCE
 from utils.other_utils import _handle_error
 
 #-----------------------------------

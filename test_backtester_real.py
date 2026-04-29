@@ -1,7 +1,7 @@
 import time
 from utils.DataBaseManager import DataBaseManager
-from algorithms.backtesting.NGramAnalyzer import NGramAnalyzer
-from algorithms.backtesting.MarketRunner import MarketRunner
+from utils.algorithms.backtesting.NGramAnalyzer import NGramAnalyzer
+from utils.algorithms.backtesting.MarketRunner import MarketRunner
 
 def main():
     db_path = "trading_data_massive.duckdb"
