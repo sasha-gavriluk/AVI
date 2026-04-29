@@ -193,16 +193,35 @@ class NGramAnalyzer(Analyzer):
         if found_prediction and len(found_prediction) > 0:
             predicted_token = found_prediction[0][0]
             
-            # Якщо ми прогнозуємо цілу "дорогу" (список токенів), для входу беремо перший
+            # Логіка консенсусу для "дороги" прогнозів
             if isinstance(predicted_token, (list, tuple)):
-                if len(predicted_token) > 0:
-                    predicted_token = predicted_token[0]
-                else:
+                if not predicted_token:
                     return None
+                
+                b_count = sum(1 for t in predicted_token if t.startswith('B'))
+                s_count = sum(1 for t in predicted_token if t.startswith('S'))
+                
+                # Якщо є суперечливі сигнали (і BUY, і SELL у прогнозі) -> пропускаємо
+                if b_count > 0 and s_count > 0:
+                    return None
+                
+                # Якщо є хоча б один B (і немає S) -> BUY
+                # (чим більше B, тим сильніший сигнал, але для бектестера повертаємо просто 'BUY')
+                if b_count > 0:
+                    return 'BUY'
+                
+                # Якщо є хоча б один S (і немає B) -> SELL
+                if s_count > 0:
+                    return 'SELL'
+                
+                # Всі токени нейтральні
+                return None
             
-            if predicted_token.startswith('B'):
-                return 'BUY'
-            elif predicted_token.startswith('S'):
-                return 'SELL'
+            else:
+                # Звичайна логіка для одного токена (road=1)
+                if predicted_token.startswith('B'):
+                    return 'BUY'
+                elif predicted_token.startswith('S'):
+                    return 'SELL'
                 
         return None

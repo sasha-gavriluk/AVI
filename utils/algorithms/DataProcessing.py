@@ -1266,6 +1266,100 @@ class BacktestAlgorithmProcessor(AlgorithmProcessor):
                 self.processed_data['Highs_Lows'].iloc[current_idx_in_slice - 1]
 
     # ----------------------------------
+    # Виявлення liquidity sweep (Lookahead-free)
+    # ----------------------------------
+
+    def detect_liquidity_sweep(self, swing_window=3, tolerance=0.0005):
+        if 'Sweep_High' not in self.processed_data.columns:
+            self.processed_data['Sweep_High'] = False
+        if 'Sweep_Low' not in self.processed_data.columns:
+            self.processed_data['Sweep_Low'] = False
+
+        current_idx = len(self.processed_data) - 1
+        current_candle_idx = self.processed_data.index[current_idx]
+
+        if current_idx < swing_window:
+            return
+
+        # Тільки минулі свічки
+        local_high = self.processed_data['high'].iloc[current_idx - swing_window : current_idx].max()
+        local_low = self.processed_data['low'].iloc[current_idx - swing_window : current_idx].min()
+
+        if self.processed_data['high'].iloc[current_idx] > local_high * (1 + tolerance):
+            self.processed_data.loc[current_candle_idx, 'Sweep_High'] = True
+
+        if self.processed_data['low'].iloc[current_idx] < local_low * (1 - tolerance):
+            self.processed_data.loc[current_candle_idx, 'Sweep_Low'] = True
+
+    # ----------------------------------
+    # Виявлення bos choch (Lookahead-free для поточної свічки)
+    # ----------------------------------
+
+    def detect_bos_choch(self):
+        """
+        Lookahead-free BOS / CHoCH для поточної свічки (щоб не перераховувати O(N^2)).
+        """
+        if 'BOS' not in self.processed_data.columns:
+            self.processed_data['BOS'] = False
+        if 'CHoCH' not in self.processed_data.columns:
+            self.processed_data['CHoCH'] = False
+            
+        # Якщо ми не маємо стану тренду, ініціалізуємо змінні
+        if not hasattr(self, '_trend_direction'):
+            self._trend_direction = None
+            self._last_confirmed_hh = None
+            self._last_confirmed_hl = None
+            self._last_confirmed_ll = None
+            self._last_confirmed_lh = None
+
+        current_idx_in_slice = len(self.processed_data) - 1
+        current_candle_df_index = self.processed_data.index[current_idx_in_slice]
+        
+        point = self.processed_data['Market_Structure_Type'].iloc[current_idx_in_slice]
+        price = self.data['close'].iloc[current_idx_in_slice]
+        
+        bos_signal = False
+        choch_signal = False
+        
+        # Перевіряємо, чи змінилася структура на поточній свічці
+        # Якщо структура та сама, що і на попередній, не робимо повторних обчислень для того ж екстремуму
+        prev_point = self.processed_data['Market_Structure_Type'].iloc[current_idx_in_slice - 1] if current_idx_in_slice > 0 else None
+        
+        if point is not None and point != prev_point:
+            if point == 'HH':
+                if self._last_confirmed_hh is None or price > self._last_confirmed_hh:
+                    self._last_confirmed_hh = price
+                if self._trend_direction == 'downtrend' and self._last_confirmed_lh is not None and price > self._last_confirmed_lh:
+                    choch_signal = True
+                    self._trend_direction = 'uptrend'
+                elif self._trend_direction == 'uptrend' and self._last_confirmed_hh is not None and price > self._last_confirmed_hh:
+                    bos_signal = True
+                elif self._trend_direction is None:
+                    self._trend_direction = 'uptrend'
+
+            elif point == 'HL':
+                if self._last_confirmed_hl is None or price > self._last_confirmed_hl:
+                    self._last_confirmed_hl = price
+
+            elif point == 'LL':
+                if self._last_confirmed_ll is None or price < self._last_confirmed_ll:
+                    self._last_confirmed_ll = price
+                if self._trend_direction == 'uptrend' and self._last_confirmed_hl is not None and price < self._last_confirmed_hl:
+                    choch_signal = True
+                    self._trend_direction = 'downtrend'
+                elif self._trend_direction == 'downtrend' and self._last_confirmed_ll is not None and price < self._last_confirmed_ll:
+                    bos_signal = True
+                elif self._trend_direction is None:
+                    self._trend_direction = 'downtrend'
+
+            elif point == 'LH':
+                if self._last_confirmed_lh is None or price < self._last_confirmed_lh:
+                    self._last_confirmed_lh = price
+
+        self.processed_data.loc[current_candle_df_index, 'BOS'] = bos_signal
+        self.processed_data.loc[current_candle_df_index, 'CHoCH'] = choch_signal
+
+    # ----------------------------------
     # Розрахунок levels
     # ----------------------------------
 
