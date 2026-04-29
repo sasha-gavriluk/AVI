@@ -1394,9 +1394,6 @@ class DataProcessingManager:
         self.pattern_detector = PatternDetector(
             self.data, self.processed_data, pattern_params
         )
-        self.algorithm_processor = AlgorithmProcessor(
-            self.data, self.processed_data, algorithm_params
-        )
         # Use the specified algorithm_processor_class
         self.algorithm_processor = algorithm_processor_class(
             self.data, self.processed_data, algorithm_params
