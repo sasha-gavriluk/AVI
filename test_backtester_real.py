@@ -31,8 +31,8 @@ def main():
         ngram_length=3, 
         min_occurrences=150,
         top_patterns=None, # <--- ДОДАНО ПАРАМЕТР (залишаємо тільки 5 найпопулярніших патернів)
-        force_update=True, # Встановіть True, якщо хочете примусово оновити прогнози
-        prediction_road=2
+        force_update=False, # Встановіть True, якщо хочете примусово оновити прогнози
+        prediction_road=3
     )
     
     print(f"NGramAnalyzer успішно ініціалізовано. Час: {time.time() - start_time:.2f} сек.")
