@@ -250,11 +250,8 @@ class LaboratoryBacktesterDealWriter:
     @_handle_error
     def save_results_to_db(self, table_name: str = 'backtest_results') -> None:
         """Метод для збереження всіх угод в окрему таблицю бази даних (Step 0)"""
-        if not self.id_trade_info.empty:
-            if self.db_manager is not None:
-                self.db_manager.insert_data_from_pandas_auto(table_name, self.id_trade_info)
-                print(f"Результати бэктесту успішно збережені в таблицю {table_name}")
-            else:
-                print("Помилка: db_manager не передано для збереження результатів.")
+        if self.db_manager is not None:
+            self.db_manager.insert_data_from_pandas_auto(table_name, self.id_trade_info)
+            print(f"Результати бэктесту успішно збережені в таблицю {table_name} (кількість угод: {len(self.id_trade_info)})")
         else:
-            print("Немає результатів для збереження.")
+            print("Помилка: db_manager не передано для збереження результатів.")

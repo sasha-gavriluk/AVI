@@ -2,9 +2,6 @@ import os
 import pandas as pd
 import sys
 
-# Додаємо корінь проекту в PYTHONPATH, щоб імпорти працювали
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
-
 from utils.DataBaseManager import DataBaseManager
 
 # ==================================
@@ -29,8 +26,16 @@ class DuckDBService:
         
     def connect(self, db_path: str):
         """Метод для підключення до бази даних за вказаним шляхом"""
+        self.disconnect() # Закриваємо попереднє з'єднання
         self.current_db_path = db_path
-        self.db_manager = DataBaseManager(db_path)
+        self.db_manager = DataBaseManager(db_path, use_default=True)
+        
+    def disconnect(self):
+        """Метод для відключення від бази та зняття блокування DuckDB"""
+        if self.db_manager:
+            self.db_manager.disconnect()
+            self.db_manager = None
+            self.current_db_path = None
         
     # ----------------------------------
     # Отримання списку таблиць
@@ -66,6 +71,12 @@ class DuckDBService:
     # Отримання загальної кількості рядків
     # ----------------------------------
             
+    def execute_query(self, query: str):
+        """Виконує довільний SQL запит (наприклад, DROP TABLE)"""
+        if not self.db_manager or not self.db_manager.conn:
+            raise Exception("База даних не підключена.")
+        self.db_manager.conn.execute(query)
+
     def get_table_count(self, table_name: str) -> int:
         """Метод для отримання загальної кількості рядків у таблиці"""
         if not self.db_manager:

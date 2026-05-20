@@ -1,9 +1,9 @@
 import pandas as pd
 
 from utils.algorithms.backtesting.BaseSettings import BaseSettings
-from utils.algorithms.backtesting.SignalProvider import Analyzer
 from utils.DataBaseManager import DataBaseManager
 from utils.LaboratoryBacktesterDealWriter import LaboratoryBacktesterDealWriter
+from utils.rules_engine import Strategy, IndicatorRegistry
 
 #==================================
 # Двигун Ринку (Market Runner)
@@ -16,35 +16,38 @@ class MarketRunner(BaseSettings):
     #------------------------------
 
     def __init__(self, 
-                 analyzer: Analyzer,
+                 strategy,
                  db_path: str = 'main.db',
                  look_ahead: bool = False,
                  commission: float = 0.0,
                  spread: float = 0.0,
                  initial_balance: float = 10000.0,
                  db_table_path: str = None,
-                 close_on_next_candle: bool = False):
+                 close_on_next_candle: bool = False,
+                 trade_direction: str = 'BUY'):
         """
         Параметри: 
-        analyzer: екземпляр класу Analyzer (SignalProvider)
+        strategy: екземпляр класу Strategy (з rules_engine)
         db_path: шлях до файлу бази даних DuckDB
         close_on_next_candle: автоматично закривати позицію перед наступною свічкою
+        trade_direction: 'BUY' або 'SELL' - тип угод, які відкриватиме стратегія
         """
 
         # Ініціалізуємо базові налаштування
         super().__init__(look_ahead, commission, spread, initial_balance, db_table_path, close_on_next_candle)
         
-        self.analyzer = analyzer
+        self.strategy = strategy
         self.db_path = db_path
+        self.trade_direction = trade_direction.upper()
         
     #------------------------------
     # Запуск двигуна бэктесту
     #------------------------------
 
-    def run(self):
-        """Запуск бэктесту: ініціалізація БД та підготовка даних."""
+    def run(self, result_table_name: str = 'backtest_results'):
+        """Запуск бэктесту: ініціалізація БД, генерація сигналів та виконання."""
 
-        print("Запуск бэктесту...")
+        print("Запуск бэктесту через Rules Engine...")
         
         with DataBaseManager(self.db_path) as db:
 
@@ -64,35 +67,40 @@ class MarketRunner(BaseSettings):
             # Сортуємо по часу для впевненості
             if 'timestamp' in df.columns:
                 df = df.sort_values('timestamp').reset_index(drop=True)
+
+            # 1. Запускаємо рушій правил (векторизовано)
+            from utils.rules_engine import IndicatorRegistry
+            registry = IndicatorRegistry(df)
+            
+            print("Обчислення сигналів стратегії...")
+            signals_df = self.strategy.execute(registry)
+            
+            # Оновлюємо df новими індикаторами, які створив реєстр
+            df = registry.data
                 
-            # Ініціалізуємо Deal Writer
+            # 2. Ініціалізуємо Deal Writer
             deal_writer = LaboratoryBacktesterDealWriter(db_manager=db, df=df, table_name=self.db_table_path, settings=self)
             
-            # Передаємо управління процесу ітерації
-            self._process_data(df, deal_writer)
+            # 3. Виконуємо ітерацію по розрахованих сигналах
+            return self._process_signals(df, signals_df, deal_writer, result_table_name=result_table_name)
 
     #------------------------------
-    # Процес ітерації по даних
+    # Процес ітерації по сигналах
     #------------------------------
 
-    def _process_data(self, df: pd.DataFrame, deal_writer: LaboratoryBacktesterDealWriter):
-        """Метод для ітерації по DataFrame свічка за свічкою та генерації/виконання угод"""
+    def _process_signals(self, df: pd.DataFrame, signals_df: pd.DataFrame, deal_writer: LaboratoryBacktesterDealWriter, result_table_name: str = 'backtest_results'):
+        """Метод для переведення булевих сигналів у реальні угоди"""
 
         current_position = None  # None, 'BUY' або 'SELL'
         current_trade_id = None
-        window_size = self.analyzer.window_size
         
+        print("Виконання угод...")
         for i in range(len(df)):
-            if i < window_size - 1:
-                continue # Чекаємо поки набереться достатньо даних для вікна
-                
-            # Отримуємо зріз даних (window)
-            window = df.iloc[i - window_size + 1 : i + 1]
-                
-            # Отримуємо сигнал від незалежного аналізатора
-            signal = self.analyzer.check_signal(window)
-            
             current_timestamp = float(df.iloc[i]['timestamp']) if 'timestamp' in df.columns else float(i)
+            
+            # Отримуємо розраховані рушієм сигнали
+            is_entry = bool(signals_df.iloc[i]['entry'])
+            is_exit = bool(signals_df.iloc[i]['exit'])
 
             # Автоматичне закриття угоди перед обробкою нової (якщо включено)
             if self.close_on_next_candle and current_position is not None:
@@ -100,57 +108,30 @@ class MarketRunner(BaseSettings):
                 current_position = None
                 current_trade_id = None
             
-            # Обробка отриманого сигналу
-            current_position, current_trade_id = self._execute_signal(
-                signal=signal, 
-                deal_writer=deal_writer, 
-                current_position=current_position, 
-                current_trade_id=current_trade_id, 
-                current_timestamp=current_timestamp
-            )
+            # 1. Обробка ВИХОДУ
+            if is_exit and current_position is not None:
+                deal_writer._add_trade_exit(timestamp=current_timestamp, id_trade=current_trade_id)
+                current_position = None
+                current_trade_id = None
+
+            # 2. Обробка ВХОДУ
+            if is_entry and current_position is None:
+                trade_type = 'buy' if self.trade_direction == 'BUY' else 'sell'
+                deal_writer._add_trade_entry(trade_type=trade_type, timestamp=current_timestamp)
+                latest_trade = deal_writer.id_trade_info.iloc[-1]
+                current_trade_id = latest_trade['TradeNumber']
+                current_position = self.trade_direction
         
         # Закриваємо позицію в кінці бэктесту, якщо вона залишилась відкритою
         if current_position is not None:
             last_timestamp = float(df.iloc[-1]['timestamp']) if 'timestamp' in df.columns else float(len(df)-1)
             deal_writer._add_trade_exit(timestamp=last_timestamp, id_trade=current_trade_id)
             
-        # Зберігаємо результати у базу даних (Step 0)
-        deal_writer.save_results_to_db(table_name='backtest_results')
+        # Зберігаємо результати у базу даних
+        try:
+            db.conn.execute(f"DROP TABLE IF EXISTS {result_table_name}")
+        except Exception:
+            pass
+        deal_writer.save_results_to_db(table_name=result_table_name)
         print("Бэктест завершено.")
-
-    #------------------------------
-    # Логіка виконання сигналів
-    #------------------------------
-
-    def _execute_signal(self, signal: str, deal_writer: LaboratoryBacktesterDealWriter, current_position: str, current_trade_id: int, current_timestamp: float) -> tuple:
-        """Метод для виконання торгових сигналів через Deal Writer"""
-
-        if signal == 'BUY' and current_position != 'BUY':
-            # Якщо є відкрита позиція SELL, закриваємо її
-            if current_position == 'SELL':
-                deal_writer._add_trade_exit(timestamp=current_timestamp, id_trade=current_trade_id)
-                
-            # Відкриваємо нову позицію BUY
-            deal_writer._add_trade_entry(trade_type='buy', timestamp=current_timestamp)
-            latest_trade = deal_writer.id_trade_info.iloc[-1]
-            current_trade_id = latest_trade['TradeNumber']
-            current_position = 'BUY'
-            
-        elif signal == 'SELL' and current_position != 'SELL':
-            # Якщо є відкрита позиція BUY, закриваємо її
-            if current_position == 'BUY':
-                deal_writer._add_trade_exit(timestamp=current_timestamp, id_trade=current_trade_id)
-                
-            # Відкриваємо нову позицію SELL
-            deal_writer._add_trade_entry(trade_type='sell', timestamp=current_timestamp)
-            latest_trade = deal_writer.id_trade_info.iloc[-1]
-            current_trade_id = latest_trade['TradeNumber']
-            current_position = 'SELL'
-            
-        elif signal == 'CLOSE' and current_position is not None:
-            # Закриваємо поточну позицію без відкриття нової
-            deal_writer._add_trade_exit(timestamp=current_timestamp, id_trade=current_trade_id)
-            current_position = None
-            current_trade_id = None
-
-        return current_position, current_trade_id
+        return deal_writer.id_trade_info

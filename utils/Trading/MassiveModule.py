@@ -42,7 +42,11 @@ class MassiveModule:
         data = [vars(a) for a in aggs]
         df = pd.DataFrame(data)
         symbol_clean = symbol.replace(":", "")[1:]
-        table_name = f"{symbol_clean}_{timeframe}"
+        
+        # Формуємо правильне ім'я таблиці (наприклад, 15m замість minute)
+        suffix_map = {"minute": "m", "hour": "h", "day": "d"}
+        suffix = f"{multiplier}{suffix_map.get(timeframe, timeframe)}"
+        table_name = f"{symbol_clean}_{suffix}"
 
         return df, table_name
     
@@ -87,7 +91,11 @@ class MassiveModule:
         """Автоматично заповнює пропуски в даних про агрегації (OHLCV) з API та зберігає їх у базі даних. Параметри: symbol - торговий символ (наприклад, 'C:EURUSD'), multiplier - множник, timeframe - таймфрейм (наприклад, 'minute'), batch_size - розмір кожного завантаження для заповнення пропусків (наприклад, '50D' для 50 днів, рекомендовано використовувати тільки дні, щоб уникнути проблем з різною кількістю записів для різних таймфреймів), time_sleep - час у секундах для паузи між завантаженнями (щоб уникнути перевищення лімітів API), limit - максимальна кількість записів для кожного завантаження, adjusted - чи враховувати корекції, sort - порядок сортування ('asc' або 'desc')"""
 
         symbol_clean = symbol.replace(":", "")[1:]
-        table_name = f"{symbol_clean}_{timeframe}"
+        
+        # Формуємо правильне ім'я таблиці (наприклад, 15m замість minute)
+        suffix_map = {"minute": "m", "hour": "h", "day": "d"}
+        suffix = f"{multiplier}{suffix_map.get(timeframe, timeframe)}"
+        table_name = f"{symbol_clean}_{suffix}"
         gaps = self.db_manager.get_time_gaps(table_name, timeframe_ms=self._timeframe_to_ms(timeframe) * multiplier)
         for gap in gaps:
             gap_start = pd.to_datetime(gap['gap_start'], unit='ms')

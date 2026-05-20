@@ -10,9 +10,15 @@ class DataBaseManager:
     # Ініціалізація
     #------------------------------
 
-    def __init__(self, db_path):
+    def __init__(self, db_path=None, use_default=False):
 
         abspath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', "data", 'db'))
+        
+        # Рубильник: якщо передано use_default=True або не вказано шлях взагалі,
+        # використовуємо стандартну єдину базу даних.
+        if use_default or not db_path:
+            db_path = "main.duckdb"
+            
         self.db_path = os.path.join(abspath, db_path)
 
         if not os.path.exists(self.db_path):
@@ -48,6 +54,12 @@ class DataBaseManager:
         query = f"CREATE TABLE IF NOT EXISTS {table_name} ({schema})"
         self.conn.execute(query)
 
+    @_handle_error
+    def create_index(self, table_name: str, column: str):
+        """Створює індекс якщо не існує"""
+        index_name = f"idx_{table_name}_{column}"
+        self.conn.execute(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name}({column})")
+
     #------------------------------
     # Вставка даних з pandas DataFrame в таблицю новостворенную
     #------------------------------
@@ -59,6 +71,9 @@ class DataBaseManager:
             df = df.drop_duplicates(subset='timestamp', keep='last')
 
         self.conn.execute(f"CREATE TABLE IF NOT EXISTS {table_name} AS SELECT * FROM df")
+        
+        if 'timestamp' in df.columns:
+            self.create_index(table_name, 'timestamp')
 
     #-----------------------------------
     # Вставка даних з pandas DataFrame в існуючу таблицю
@@ -104,6 +119,12 @@ class DataBaseManager:
             self.insert_data_from_pandas(table_name, df)
         else:
             self.insert_data_from_pandas_append(table_name, df)
+            
+        if table_name == "copilot_memory":
+            self.create_index("copilot_memory", "timestamp")
+            self.create_index("copilot_memory", "asset")
+        elif table_name == "rules_changelog":
+            self.create_index("rules_changelog", "element")
 
     #------------------------------
     # Вивід даних всіх таблиць з бази даних
