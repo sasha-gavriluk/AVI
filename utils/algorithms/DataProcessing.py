@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from scipy.signal import find_peaks
+from utils.algorithms.WrapCandleEngine import WCE
 
 class IndicatorProcessor:
     def __init__(self, data: pd.DataFrame, processed_data: pd.DataFrame, indicators_params=None):
@@ -274,6 +275,81 @@ class IndicatorProcessor:
         self.processed_data[column] = self.data['volume'].rolling(window=period).mean()
 
     # ----------------------------------
+    # Wrap Candle Engine (WCE)
+    # ----------------------------------
+
+    def add_wce(self, period=10):
+        """Метод для перетворення свічок у токени WCE (напр. B555, S234)"""
+        wce = WCE(self.data, period=period)
+        column = self._get_unique_column_name(f'WCE_{period}')
+        self.processed_data[column] = wce.get_combined_sequence_v2()
+
+    # ----------------------------------
+    # Кластеризація ринку (Market States)
+    # ----------------------------------
+
+    def add_market_state_linear(self, period=20, slope_threshold=0.05, vol_threshold=1.5):
+        """
+        Метод лінійної кластеризації станів ринку.
+        Визначає стан ринку на основі нормалізованого нахилу лінійної регресії та волатильності.
+        Стани:
+         1: 'uptrend' (Висхідний тренд)
+        -1: 'downtrend' (Низхідний тренд)
+         0: 'flat' (Боковик)
+         3: 'volatility' (Висока волатильність/хаос)
+        """
+        close_prices = self.data['close']
+
+        # 1. Розрахунок нахилу лінійної регресії (Slope)
+        x = np.arange(period)
+        x_mean = x.mean()
+        x_diff = x - x_mean
+        x_diff_sq_sum = (x_diff ** 2).sum()
+        
+        if x_diff_sq_sum == 0:
+            x_diff_sq_sum = 1e-10
+
+        def calc_slope(y):
+            y_mean = np.mean(y)
+            return np.sum(x_diff * (y - y_mean)) / x_diff_sq_sum
+
+        slope = close_prices.rolling(window=period).apply(calc_slope, raw=True)
+
+        # Нормалізуємо нахил (відсоток зміни за одиницю часу)
+        normalized_slope = (slope / close_prices) * 100
+
+        # 2. Розрахунок волатильності
+        sma = close_prices.rolling(window=period).mean()
+        std_dev = close_prices.rolling(window=period).std()
+        normalized_volatility = (std_dev / sma) * 100
+
+        # Визначаємо відносну волатильність до середньої за довгий період
+        long_period = period * 4
+        avg_volatility = normalized_volatility.rolling(window=long_period).mean()
+        volatility_ratio = normalized_volatility / avg_volatility
+
+        # 3. Кластеризація (Маркування станів)
+        states = pd.Series(0, index=self.data.index)
+
+        # Логіка станів
+        vol_condition = volatility_ratio > vol_threshold
+        uptrend_condition = (normalized_slope > slope_threshold) & (~vol_condition)
+        downtrend_condition = (normalized_slope < -slope_threshold) & (~vol_condition)
+
+        states.loc[uptrend_condition] = 1
+        states.loc[downtrend_condition] = -1
+        states.loc[vol_condition] = 3
+
+        # Зберігаємо результати
+        column_slope = self._get_unique_column_name(f'Market_Slope_{period}')
+        column_vol = self._get_unique_column_name(f'Market_VolRatio_{period}')
+        column_state = self._get_unique_column_name(f'Market_State_Linear_{period}')
+
+        self.processed_data[column_slope] = normalized_slope
+        self.processed_data[column_vol] = volatility_ratio
+        self.processed_data[column_state] = states
+
+    # ----------------------------------
     # Головна функція
     # ----------------------------------
 
@@ -296,6 +372,7 @@ class IndicatorProcessor:
             'ATR': self.add_atr,
             'Keltner_Channel': self.add_keltner_channel,
             'Volume_Avg': self.add_volume_avg,
+            'Market_State_Linear': self.add_market_state_linear,
         }
 
         if self.indicators_params:
@@ -576,6 +653,124 @@ class AlgorithmProcessor:
         self.algorithm_params = algorithm_params if algorithm_params is not None else []
 
     # ----------------------------------
+    # NGram Прогнози (AI)
+    # ----------------------------------
+
+    def add_ngram_predictions(self, wce_column='WCE_10', ngram_length=3, prediction_road=1):
+        """
+        Метод для генерування сигналів на основі NGramAnalyzer.
+        Приймає на вхід колонку WCE та проганяє її через аналізатор.
+        """
+        from utils.algorithms.NGramAnalyzer import NGramAnalyzer
+        from utils.algorithms.WrapCandleEngine import WCE
+        
+        # Перевіряємо чи є колонка WCE
+        if wce_column not in self.processed_data.columns and wce_column not in self.data.columns:
+            # Якщо немає, генеруємо її з дефолтним періодом (наприклад 10)
+            period_str = wce_column.split('_')[-1]
+            period = int(period_str) if period_str.isdigit() else 10
+            wce = WCE(self.data, period=period)
+            self.processed_data[wce_column] = wce.get_combined_sequence_v2()
+            
+        wce_series = self.processed_data[wce_column] if wce_column in self.processed_data.columns else self.data[wce_column]
+        
+        try:
+            # Ініціалізуємо аналізатор (без доступу до БД, вимагає вже згенерованого json-файлу)
+            analyzer = NGramAnalyzer(db_manager=None, table_name=None, ngram_length=ngram_length, prediction_road=prediction_road)
+        except Exception as e:
+            print(f"Помилка ініціалізації NGramAnalyzer: {e}. Переконайтесь, що файл прогнозів існує.")
+            return
+
+        signals = []
+        for token in wce_series:
+            # Якщо токен N000 або подібний
+            if not isinstance(token, str):
+                signals.append(0)
+                continue
+                
+            analyzer.history.append(token)
+            
+            # Якщо історія ще не заповнена
+            if len(analyzer.history) < analyzer.ngram_length:
+                signals.append(0)
+                continue
+                
+            # Симулюємо логіку з analyze
+            if len(analyzer.history) > analyzer.ngram_length:
+                analyzer.history.pop(0)
+                
+            parsed_hist = tuple(analyzer._parse_token(t) for t in analyzer.history)
+            dir_signature = tuple(pt[0] if isinstance(pt, tuple) else pt for pt in parsed_hist)
+            
+            found_prediction = None
+            if dir_signature in analyzer.valid_prefixes:
+                for base_parsed in analyzer.signature_index.get(dir_signature, []):
+                    is_similar = True
+                    for pt1, pt2 in zip(parsed_hist, base_parsed):
+                        if type(pt1) != type(pt2):
+                            is_similar = False
+                            break
+                        if isinstance(pt1, tuple):
+                            if abs(pt1[1] - pt2[1]) > analyzer.tolerance or \
+                               abs(pt1[2] - pt2[2]) > analyzer.tolerance or \
+                               abs(pt1[3] - pt2[3]) > analyzer.tolerance:
+                                is_similar = False
+                                break
+                        elif pt1 != pt2:
+                            is_similar = False
+                            break
+                    if is_similar:
+                        found_prediction = analyzer.parsed_predictions[base_parsed]
+                        break
+            
+            # Інтерпретуємо сигнал
+            if found_prediction and len(found_prediction) > 0:
+                pred_token = found_prediction[0][0]
+                if isinstance(pred_token, (list, tuple)) and len(pred_token) > 0:
+                    pred_token = pred_token[0] # беремо найімовірніший напрямок
+                elif isinstance(pred_token, (list, tuple)):
+                    pred_token = 'D'
+                    
+                if isinstance(pred_token, str):
+                    if pred_token.startswith('B'):
+                        signals.append(1)
+                    elif pred_token.startswith('S'):
+                        signals.append(-1)
+                    else:
+                        signals.append(0)
+                else:
+                    signals.append(0)
+            else:
+                signals.append(0)
+            
+        self.processed_data[f'NGRAM_ROAD_{prediction_road}'] = signals
+
+    # ----------------------------------
+    # WCE Anomaly Detector
+    # ----------------------------------
+    
+    def add_wce_anomaly(self, wce_column='WCE_10', peak_threshold=6, norm_threshold=3):
+        """
+        Відстежує аномалії WCE токенів (ефект розтягнутої гумки).
+        """
+        from utils.algorithms.WrapCandleEngine import WCE
+        from utils.algorithms.WCEAnomalyDetector import WCEAnomalyDetector
+        
+        if wce_column not in self.processed_data.columns and wce_column not in self.data.columns:
+            period_str = wce_column.split('_')[-1]
+            period = int(period_str) if period_str.isdigit() else 10
+            wce = WCE(self.data, period=period)
+            self.processed_data[wce_column] = wce.get_combined_sequence_v2()
+            
+        data_to_use = self.processed_data if wce_column in self.processed_data.columns else self.data
+        
+        detector = WCEAnomalyDetector(data_to_use, wce_column, peak_threshold, norm_threshold)
+        signals = detector.calculate()
+        
+        col_name = f'WCE_ANOMALY_{peak_threshold}_{norm_threshold}'
+        self.processed_data[col_name] = signals
+
+    # ----------------------------------
     # Розрахунок levels
     # ----------------------------------
 
@@ -826,7 +1021,7 @@ class AlgorithmProcessor:
             current_point = self.processed_data['Market_Structure_Point'].iloc[i]
             current_price = self.data['close'].iloc[i]
 
-            if current_point is not None:
+            if not pd.isna(current_point):
                 if last_swing_price is None:
                     structure_type.append(None)
                 else:
@@ -1051,6 +1246,7 @@ class AlgorithmProcessor:
             'Liquidity_Sweep': self.detect_liquidity_sweep,
             'Order_Blocks': self.detect_order_blocks,
             'Fair_Value_Gaps': self.detect_fair_value_gaps,
+            'WCE_Anomaly': self.add_wce_anomaly,
         }
 
         if self.algorithm_params:

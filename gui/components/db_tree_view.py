@@ -9,7 +9,7 @@ class DBTreeView(QTreeWidget):
     """Віджет дерева для відображення баз даних та таблиць"""
     
     # Сигнал, який спрацьовує, коли користувач клікає на таблицю
-    table_selected = pyqtSignal(str) 
+    table_selected = pyqtSignal(str, str) # db_path, table_name
     
     # ----------------------------------
     # Ініціалізація
@@ -25,26 +25,28 @@ class DBTreeView(QTreeWidget):
     # Заповнення дерева
     # ----------------------------------
         
-    def populate(self, db_name: str, tables: list):
-        """Метод для заповнення дерева назвою бази та списком її таблиць"""
+    def populate(self, databases_dict: dict):
+        """Метод для заповнення дерева списком баз даних та їхніх таблиць"""
         self.clear()
         
-        # Кореневий елемент - База даних
-        root_item = QTreeWidgetItem([db_name])
-        # Можемо зберегти тип елемента у кастомних даних
-        root_item.setData(0, 32, "database") 
-        
-        self.addTopLevelItem(root_item)
-        
-        # Додаємо таблиці як дочірні елементи
-        for table in tables:
-            table_item = QTreeWidgetItem([table])
-            table_item.setData(0, 32, "table")
-            table_item.setData(0, 33, table) # Зберігаємо ім'я таблиці
-            root_item.addChild(table_item)
+        for db_name, data in databases_dict.items():
+            db_path = data.get("path")
+            tables = data.get("tables", [])
             
-        # Розгортаємо дерево
-        root_item.setExpanded(True)
+            # Кореневий елемент - База даних
+            root_item = QTreeWidgetItem([db_name])
+            root_item.setData(0, 32, "database") 
+            root_item.setData(0, 34, db_path)
+            
+            self.addTopLevelItem(root_item)
+            
+            # Додаємо таблиці як дочірні елементи
+            for table in tables:
+                table_item = QTreeWidgetItem([table])
+                table_item.setData(0, 32, "table")
+                table_item.setData(0, 33, table) # Зберігаємо ім'я таблиці
+                table_item.setData(0, 34, db_path) # Зберігаємо шлях до БД
+                root_item.addChild(table_item)
         
     # ----------------------------------
     # Обробка кліку
@@ -55,4 +57,5 @@ class DBTreeView(QTreeWidget):
         item_type = item.data(0, 32)
         if item_type == "table":
             table_name = item.data(0, 33)
-            self.table_selected.emit(table_name)
+            db_path = item.data(0, 34)
+            self.table_selected.emit(db_path, table_name)

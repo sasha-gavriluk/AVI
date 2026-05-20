@@ -15,7 +15,7 @@ class OpenGraphicsView(QMainWindow):
 
         self.db_manager = db_manager
 
-        self.wce_data = self.db_manager.get_data_as_dataframe("EURUSD_minute")["WCE"].tolist()
+        self.wce_data = self.db_manager.get_data_as_dataframe("EURUSD_15m")["WCE"].tolist()
 
         # Завжди в самому кінці конструктора викликаємо ініціалізацію всіх віджетів
         self._init_all_widgets()

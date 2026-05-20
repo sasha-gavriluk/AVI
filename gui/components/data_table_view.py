@@ -22,10 +22,10 @@ class PandasTableModel(QAbstractTableModel):
     # Оновлення даних
     # ----------------------------------
         
-    def update_data(self, data: pd.DataFrame):
+    def update_data(self, data):
         """Метод для оновлення DataFrame та сповіщення віджета про зміни"""
         self.beginResetModel()
-        self._data = data
+        self._data = data if data is not None else pd.DataFrame()
         self.endResetModel()
 
     # ----------------------------------
