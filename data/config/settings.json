@@ -1,0 +1,25 @@
+{
+    "trading_mode": {
+        "type": "Binary Options",
+        "bo_payout_percent": 80.0,
+        "bo_bet_size": 10.0,
+        "bo_expiration_bars": 1
+    },
+    "risk_management": {
+        "stop_loss_percent": 1.5,
+        "max_drawdown_session": 5.0,
+        "daily_loss_limit": 100.0
+    },
+    "copilot": {
+        "half_life_days": 90,
+        "min_score_for_best": 0.6,
+        "routine_interval_hours": 1.0
+    },
+    "copilot_view": {
+        "cb_auto_mode": true,
+        "cb_auto_gen": true,
+        "cb_download_ccxt": true,
+        "cb_download_massive": false,
+        "cb_gen_signals": true
+    }
+}

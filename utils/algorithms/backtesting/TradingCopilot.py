@@ -12,9 +12,38 @@ def _run_single_strategy(args: tuple) -> dict:
     strategy_code, db_path, table_name = args
     try:
         from utils.algorithms.backtesting.MarketRunner import MarketRunner
-        # Компілюємо стратегію з коду
+        from utils.rules_engine.core import Indicator, Pattern, Algorithm, Expression, Constant
+        from utils.rules_engine.strategy import Strategy
+        import ast
+
+        # Sandbox AST перевірка
+        tree = ast.parse(strategy_code)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                raise ValueError("Imports are not allowed in strategy code.")
+            if isinstance(node, ast.Call) and getattr(node.func, 'id', '') in ['open', 'exec', 'eval', '__import__', 'globals', 'locals']:
+                raise ValueError(f"Function {getattr(node.func, 'id', 'unknown')} is not allowed.")
+
+        # Компілюємо стратегію з коду в безпечному середовищі
+        safe_globals = {
+            '__builtins__': {
+                'True': True, 'False': False, 'None': None,
+                'min': min, 'max': max, 'abs': abs,
+                'float': float, 'int': int, 'str': str,
+                'bool': bool, 'list': list, 'dict': dict,
+                'tuple': tuple, 'set': set,
+                'len': len, 'sum': sum
+            },
+            'Strategy': Strategy,
+            'Indicator': Indicator,
+            'Pattern': Pattern,
+            'Algorithm': Algorithm,
+            'Expression': Expression,
+            'Constant': Constant
+        }
+        
         local_scope = {}
-        exec(strategy_code, globals(), local_scope)
+        exec(strategy_code, safe_globals, local_scope)
         strategy_obj = local_scope.get("strategy")
         
         # Кожен процес відкриває своє підключення
@@ -23,11 +52,44 @@ def _run_single_strategy(args: tuple) -> dict:
             db_path=db_path,
             db_table_path=table_name
         )
-        # Витягуємо показники з MarketRunner (він повертає df або інакше, беремо аналітику)
-        df_trades = runner.run()
         
-        # Відправляємо контекст і результати (спрощено)
-        return {"success": True, "result": {"context": strategy_code, "indicators": "", "performance": {}}, "code": strategy_code}
+        # Унікальна таблиця для кожного процесу щоб уникнути конфліктів
+        import time, random
+        result_table = f"backtest_{int(time.time()*1000)}_{random.randint(1000, 9999)}"
+        df_trades = runner.run(result_table_name=result_table)
+        
+        # Аналіз індикаторів з AST
+        indicators = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, 'id', '') in ['Indicator', 'Pattern', 'Algorithm']:
+                if node.args and isinstance(node.args[0], ast.Constant):
+                    indicators.append(node.args[0].value)
+
+        # Аналіз показників торгівлі
+        performance = {
+            'win_rate': 0.0,
+            'profit_factor': 0.0,
+            'total_trades': 0
+        }
+        
+        if df_trades is not None and not df_trades.empty:
+            closed_trades = df_trades[df_trades['Status'] == 'closed']
+            total_trades = len(closed_trades)
+            if total_trades > 0 and 'Profit' in closed_trades.columns:
+                wins = len(closed_trades[closed_trades['Profit'] > 0])
+                win_rate = (wins / total_trades) * 100
+                gross_profit = closed_trades[closed_trades['Profit'] > 0]['Profit'].sum()
+                gross_loss = abs(closed_trades[closed_trades['Profit'] < 0]['Profit'].sum())
+                profit_factor = gross_profit / gross_loss if gross_loss > 0 else (gross_profit if gross_profit > 0 else 0)
+                
+                performance = {
+                    'win_rate': win_rate,
+                    'profit_factor': profit_factor,
+                    'total_trades': total_trades
+                }
+        
+        # Відправляємо контекст і результати
+        return {"success": True, "result": {"context": strategy_code, "indicators": indicators, "performance": performance}, "code": strategy_code}
     except Exception as e:
         return {"success": False, "error": str(e), "code": strategy_code}
 
@@ -694,7 +756,7 @@ class TradingCopilot:
                                 "message": f"Логічна суперечність для {var}: '{var} {c1['op_symbol']} {c1['val']}' та '{var} {c2['op_symbol']} {c2['val']}' в одному 'AND' блоці.",
                                 "explanation": "Ця умова ніколи не буде виконана! Змінна не може бути одночасно меншою за менше значення і більшою за більше."
                             })
-                    except ValueError:
+                    except (ValueError, TypeError):
                         pass
 
     def _check_trend_oscillator_clash(self, conditions, report):
@@ -757,7 +819,7 @@ class TradingCopilot:
                                 "message": f"Небезпечне перекриття правил: вхід при '{enc['var']} < {enc['val']}' та вихід при '{exc['var']} < {exc['val']}'.",
                                 "explanation": f"Оскільки {en_val} менше ніж {ex_val}, будь-який успішний вхід автоматично задовольнить умову виходу на наступній свічці, що призведе до миттєвого закриття угод!"
                             })
-                    except ValueError:
+                    except (ValueError, TypeError):
                         pass
 
     def _check_pattern_context(self, conditions, report):

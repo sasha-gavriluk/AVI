@@ -73,7 +73,12 @@ class CrossOver(Expression):
         l_prev = l_val.shift(1) if isinstance(l_val, pd.Series) else l_val
         r_prev = r_val.shift(1) if isinstance(r_val, pd.Series) else r_val
         
-        return (l_val > r_val) & (l_prev <= r_prev)
+        try:
+            return (l_val > r_val) & (l_prev <= r_prev)
+        except Exception:
+            if isinstance(l_val, pd.Series):
+                return pd.Series(False, index=l_val.index)
+            return False
 
     def __repr__(self):
         return f"CrossOver({self.left}, {self.right})"
@@ -92,7 +97,12 @@ class CrossUnder(Expression):
         l_prev = l_val.shift(1) if isinstance(l_val, pd.Series) else l_val
         r_prev = r_val.shift(1) if isinstance(r_val, pd.Series) else r_val
         
-        return (l_val < r_val) & (l_prev >= r_prev)
+        try:
+            return (l_val < r_val) & (l_prev >= r_prev)
+        except Exception:
+            if isinstance(l_val, pd.Series):
+                return pd.Series(False, index=l_val.index)
+            return False
 
     def __repr__(self):
         return f"CrossUnder({self.left}, {self.right})"
@@ -162,8 +172,17 @@ class BinaryOperation(Expression):
         left_val = self.left.evaluate(registry)
         # 2. Обчислюємо праву частину
         right_val = self.right.evaluate(registry)
+        
         # 3. Виконуємо операцію (наприклад, Pandas Series > 50)
-        return self.op_func(left_val, right_val)
+        try:
+            return self.op_func(left_val, right_val)
+        except Exception:
+            # Безпечне падіння для некоректних порівнянь (напр. рядок > число)
+            if isinstance(left_val, pd.Series):
+                return pd.Series(False, index=left_val.index)
+            elif isinstance(right_val, pd.Series):
+                return pd.Series(False, index=right_val.index)
+            return False
 
     def __repr__(self):
         return f"({self.left} {self.op_symbol} {self.right})"

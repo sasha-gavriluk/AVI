@@ -9,6 +9,10 @@ from gui.views.ExplorerView import DuckDBExplorerWindow
 from gui.views.ChartView import TradingChartApp
 from gui.views.BacktestView import BacktestView
 from gui.views.DownloaderView import DataDownloaderWindow
+from gui.views.SettingsView import SettingsView
+from gui.views.CopilotView import CopilotView
+from gui.views.LiveTradingView import LiveTradingView
+from gui.status_bar import GlobalStatusBar
 
 class MainAppWindow(QMainWindow):
     def __init__(self, default_db_path=None):
@@ -19,6 +23,11 @@ class MainAppWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
         
+        # Статус бар
+        self.global_status = GlobalStatusBar(self)
+        self.setStatusBar(self.global_status)
+        self.global_status.set_status("Ініціалізація...")
+        
         # Ініціалізуємо вкладки
         self.explorer_tab = DuckDBExplorerWindow(default_db_path)
         self.chart_tab = TradingChartApp()
@@ -27,6 +36,9 @@ class MainAppWindow(QMainWindow):
         config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'config', 'strategy_meta.json')
         self.backtest_tab = BacktestView(config_path)
         self.downloader_tab = DataDownloaderWindow()
+        self.settings_tab = SettingsView()
+        self.copilot_tab = CopilotView()
+        self.live_trading_tab = LiveTradingView()
         
         # Налаштування колбеків для блокування БД
         self.explorer_tab.is_db_locked_callback = self.is_db_downloading
@@ -37,6 +49,9 @@ class MainAppWindow(QMainWindow):
         self.tabs.addTab(self.chart_tab, "Торговий графік")
         self.tabs.addTab(self.backtest_tab, "Налаштування бектестів")
         self.tabs.addTab(self.downloader_tab, "Завантаження даних")
+        self.tabs.addTab(self.copilot_tab, "Автономний Копілот")
+        self.tabs.addTab(self.live_trading_tab, "Live Trading")
+        self.tabs.addTab(self.settings_tab, "Налаштування")
         
         # Зв'язуємо натискання кнопки "Відкрити на графіку"
         self.explorer_tab.btn_open_chart.clicked.connect(self.on_open_chart_clicked)
@@ -47,8 +62,14 @@ class MainAppWindow(QMainWindow):
         # Автоматичне оновлення даних при переході на іншу вкладку
         self.tabs.currentChanged.connect(self.on_tab_changed)
         
+        self.global_status.set_status("Готово")
+        
     @pyqtSlot(int)
     def on_tab_changed(self, index):
+        # Оновлення статусу
+        tab_name = self.tabs.tabText(index)
+        self.global_status.set_tab(tab_name)
+        
         # Отримуємо віджет вкладки
         widget = self.tabs.widget(index)
         

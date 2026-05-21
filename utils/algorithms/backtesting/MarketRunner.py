@@ -39,15 +39,35 @@ class MarketRunner(BaseSettings):
         self.strategy = strategy
         self.db_path = db_path
         self.trade_direction = trade_direction.upper()
+
+        import os, json
+        self.config_mode = "Standard"
+        self.bo_expiration_bars = 1
+        
+        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data', 'config', 'settings.json'))
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    mode_data = data.get("trading_mode", {})
+                    self.config_mode = mode_data.get("type", "Standard")
+                    self.bo_expiration_bars = mode_data.get("bo_expiration_bars", 1)
+            except: pass
+            
+        self.bars_in_trade = 0 # Лічильник барів для поточної угоди
         
     #------------------------------
     # Запуск двигуна бэктесту
     #------------------------------
 
-    def run(self, result_table_name: str = 'backtest_results'):
+    def run(self, result_table_name: str = None):
         """Запуск бэктесту: ініціалізація БД, генерація сигналів та виконання."""
 
         print("Запуск бэктесту через Rules Engine...")
+        
+        import time
+        if result_table_name is None:
+            result_table_name = f'backtest_results_{int(time.time() * 1000)}'
         
         with DataBaseManager(self.db_path) as db:
 
@@ -66,6 +86,7 @@ class MarketRunner(BaseSettings):
             
             # Сортуємо по часу для впевненості
             if 'timestamp' in df.columns:
+                df = df.dropna(subset=['timestamp'])
                 df = df.sort_values('timestamp').reset_index(drop=True)
 
             # 1. Запускаємо рушій правил (векторизовано)
@@ -102,25 +123,46 @@ class MarketRunner(BaseSettings):
             is_entry = bool(signals_df.iloc[i]['entry'])
             is_exit = bool(signals_df.iloc[i]['exit'])
 
-            # Автоматичне закриття угоди перед обробкою нової (якщо включено)
-            if self.close_on_next_candle and current_position is not None:
-                deal_writer._add_trade_exit(timestamp=current_timestamp, id_trade=current_trade_id)
-                current_position = None
-                current_trade_id = None
-            
-            # 1. Обробка ВИХОДУ
-            if is_exit and current_position is not None:
-                deal_writer._add_trade_exit(timestamp=current_timestamp, id_trade=current_trade_id)
-                current_position = None
-                current_trade_id = None
+            # ==========================================
+            # 1. ЛОГІКА ВИХОДУ З УГОДИ
+            # ==========================================
+            if current_position is not None:
+                if getattr(self, "config_mode", "Standard") == "Binary Options":
+                    # --- РЕЖИМ БІНАРНИХ ОПЦІОНІВ ---
+                    # Вихід відбувається ВИКЛЮЧНО по таймеру (кількості барів експірації)
+                    self.bars_in_trade += 1
+                    
+                    if self.bars_in_trade >= getattr(self, "bo_expiration_bars", 1):
+                        deal_writer._add_trade_exit(timestamp=current_timestamp, id_trade=current_trade_id)
+                        current_position = None
+                        current_trade_id = None
+                        self.bars_in_trade = 0
+                else:
+                    # --- СТАНДАРТНИЙ РЕЖИМ (CFD / Forex / Crypto) ---
+                    # Автоматичне закриття угоди (close_on_next_candle)
+                    if self.close_on_next_candle and not is_entry:
+                        deal_writer._add_trade_exit(timestamp=current_timestamp, id_trade=current_trade_id)
+                        current_position = None
+                        current_trade_id = None
+                    
+                    # Вихід по сигналу індикатора
+                    elif is_exit:
+                        deal_writer._add_trade_exit(timestamp=current_timestamp, id_trade=current_trade_id)
+                        current_position = None
+                        current_trade_id = None
 
-            # 2. Обробка ВХОДУ
+            # ==========================================
+            # 2. ЛОГІКА ВХОДУ В УГОДУ
+            # ==========================================
             if is_entry and current_position is None:
                 trade_type = 'buy' if self.trade_direction == 'BUY' else 'sell'
                 deal_writer._add_trade_entry(trade_type=trade_type, timestamp=current_timestamp)
                 latest_trade = deal_writer.id_trade_info.iloc[-1]
                 current_trade_id = latest_trade['TradeNumber']
                 current_position = self.trade_direction
+                
+                # Скидаємо лічильник барів при відкритті нової угоди
+                self.bars_in_trade = 0 
         
         # Закриваємо позицію в кінці бэктесту, якщо вона залишилась відкритою
         if current_position is not None:
@@ -129,9 +171,11 @@ class MarketRunner(BaseSettings):
             
         # Зберігаємо результати у базу даних
         try:
-            db.conn.execute(f"DROP TABLE IF EXISTS {result_table_name}")
+            # ВИПРАВЛЕНО: Використовуємо з'єднання з deal_writer замість локального db, якого тут немає
+            deal_writer.db_manager.conn.execute(f"DROP TABLE IF EXISTS {result_table_name}")
         except Exception:
             pass
+            
         deal_writer.save_results_to_db(table_name=result_table_name)
         print("Бэктест завершено.")
         return deal_writer.id_trade_info

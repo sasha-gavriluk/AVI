@@ -12,8 +12,15 @@ class IndicatorRegistry:
     _cached_df_hash = None
     
     def __init__(self, data: pd.DataFrame):
-        # Якщо df не змінився (за кількістю рядків) — використовуємо старий кеш
-        df_hash = hash(data.shape[0])
+        # Надійний хеш: кількість рядків + timestamp першого і останнього + сума цін закриття
+        try:
+            t1 = data['timestamp'].iloc[0] if 'timestamp' in data.columns else 0
+            t2 = data['timestamp'].iloc[-1] if 'timestamp' in data.columns else 0
+            c_sum = data['close'].sum() if 'close' in data.columns else 0
+            df_hash = hash((data.shape[0], data.shape[1], t1, t2, c_sum))
+        except Exception:
+            df_hash = hash((data.shape[0], data.shape[1]))
+            
         if df_hash != IndicatorRegistry._cached_df_hash:
             IndicatorRegistry._static_cache = {}
             IndicatorRegistry._cached_df_hash = df_hash
