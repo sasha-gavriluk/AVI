@@ -1,33 +1,29 @@
 import os
+import json
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QTextEdit, QLabel, QGroupBox, QSplitter, QCheckBox, 
-                             QListWidget, QProgressBar, QFrame, QDoubleSpinBox, QFormLayout)
-from PyQt6.QtCore import Qt, QTimer
+                             QListWidget, QProgressBar)
+from PyQt6.QtCore import Qt
 
-from core.services.copilot_service import CopilotService
-
-class CopilotView(QWidget):
+#==================================
+# TabCopilotVisual
+#==================================
+class TabCopilotVisual(QWidget):
+    # ----------------------------------
+    # __init__, ініціалізація візуалу Copilot
+    # ----------------------------------
+    # Параметри:
+    # parent: батьківський віджет
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.copilot_service = CopilotService()
-        self.copilot_service.log_update.connect(self.append_log)
-        self.copilot_service.status_update.connect(self.update_status)
-        
         self.config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'config', 'settings.json'))
         self.cb_states = self._load_cb_states()
-
-        
-        self.db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'db', 'main.duckdb'))
         self.init_ui()
-        
-        # Таймер для оновлення статистики (кожні 10 сек)
-        self.stats_timer = QTimer(self)
-        self.stats_timer.timeout.connect(self.update_stats_ui)
-        self.stats_timer.start(10000)
-        
-        # Перше оновлення одразу після запуску
-        QTimer.singleShot(500, self.update_stats_ui)
 
+    # ----------------------------------
+    # init_ui, побудова інтерфейсу
+    # ----------------------------------
+    # Параметри: немає
     def init_ui(self):
         main_layout = QVBoxLayout(self)
         
@@ -53,7 +49,6 @@ class CopilotView(QWidget):
             }
         """)
         self.btn_active.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_active.clicked.connect(self.start_auto_routine)
         header_layout.addWidget(self.btn_active)
         
         self.btn_stop = QPushButton("■ STOP")
@@ -71,7 +66,6 @@ class CopilotView(QWidget):
             }
         """)
         self.btn_stop.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_stop.clicked.connect(self.stop_auto_routine)
         header_layout.addWidget(self.btn_stop)
         
         main_layout.addLayout(header_layout)
@@ -103,14 +97,14 @@ class CopilotView(QWidget):
         tasks_layout.addWidget(self.tasks_list)
         
         tasks_btns = QHBoxLayout()
-        btn_add_task = QPushButton("+ Задачу")
-        btn_add_task.setStyleSheet("background-color: #45475A; padding: 5px;")
-        btn_add_task.clicked.connect(self.add_task)
-        btn_start_task = QPushButton("▶ Старт")
-        btn_start_task.setStyleSheet("background-color: #A6E3A1; color: #11111B; padding: 5px; font-weight: bold;")
-        btn_start_task.clicked.connect(self.scan_gaps) # тимчасово
-        tasks_btns.addWidget(btn_add_task)
-        tasks_btns.addWidget(btn_start_task)
+        self.btn_add_task = QPushButton("+ Задачу")
+        self.btn_add_task.setStyleSheet("background-color: #45475A; padding: 5px;")
+        
+        self.btn_start_task = QPushButton("▶ Старт")
+        self.btn_start_task.setStyleSheet("background-color: #A6E3A1; color: #11111B; padding: 5px; font-weight: bold;")
+        
+        tasks_btns.addWidget(self.btn_add_task)
+        tasks_btns.addWidget(self.btn_start_task)
         tasks_layout.addLayout(tasks_btns)
         
         left_layout.addWidget(tasks_group)
@@ -191,10 +185,13 @@ class CopilotView(QWidget):
         splitter.addWidget(right_panel)
         splitter.setSizes([250, 600])
         main_layout.addWidget(splitter)
-        
+
+    # ----------------------------------
+    # _load_cb_states, завантаження станів чекбоксів
+    # ----------------------------------
+    # Параметри: немає
     def _load_cb_states(self):
         if os.path.exists(self.config_path):
-            import json
             try:
                 with open(self.config_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
@@ -202,9 +199,12 @@ class CopilotView(QWidget):
             except Exception:
                 pass
         return {}
-        
+
+    # ----------------------------------
+    # save_settings, збереження станів чекбоксів
+    # ----------------------------------
+    # Параметри: немає
     def save_settings(self):
-        import json
         data = {}
         if os.path.exists(self.config_path):
             try:
@@ -226,86 +226,15 @@ class CopilotView(QWidget):
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4)
         except Exception as e:
-            self.append_log(f"Помилка збереження налаштувань: {e}")
-        
-    def scan_gaps(self):
-        self.append_log("--- Розпочато сканування прогалин ---")
-        if not os.path.exists(self.db_path):
-            self.append_log(f"Помилка: БД {self.db_path} не знайдена!")
-            return
-        
-        use_ccxt = self.cb_download_ccxt.isChecked()
-        use_massive = self.cb_download_massive.isChecked()
-        self.copilot_service.analyze_database(self.db_path, use_ccxt, use_massive)
+            self.log_console.append(f"Помилка збереження налаштувань: {e}")
 
-    def add_task(self):
-        self.append_log("--- Відкрито меню додавання задачі (В розробці) ---")
-
-    def append_log(self, text):
-        import datetime
-        now = datetime.datetime.now().strftime("%H:%M:%S")
-        self.log_console.append(f"[{now}] {text}")
-        
-    def update_status(self, text):
-        pass # Видалено, статус керується кнопками
-        
-    def start_auto_routine(self):
-        self.append_log("🚀 Запуск автономного планувальника Копілота...")
-        self.btn_active.setStyleSheet("""
-            QPushButton {
-                font-size: 14px; 
-                font-weight: bold; 
-                color: #11111B; 
-                background-color: #F9E2AF; 
-                border-radius: 6px;
-                padding: 8px 16px;
-            }
-        """)
-        self.btn_active.setText("⏳ RUNNING")
-        
-        # Читаємо налаштування чекбоксів
-        use_ccxt = self.cb_download_ccxt.isChecked()
-        use_massive = self.cb_download_massive.isChecked()
-        auto_gen = self.cb_auto_gen.isChecked()
-        
-        # Читаємо інтервал з глобальних налаштувань
-        interval = 1.0
-        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'config', 'settings.json'))
-        if os.path.exists(config_path):
-            import json
-            try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    interval = data.get("copilot", {}).get("routine_interval_hours", 1.0)
-            except Exception:
-                pass
-        
-        self.copilot_service.start_scheduler(self.db_path, use_ccxt, use_massive, auto_gen, interval)
-
-    def stop_auto_routine(self):
-        self.append_log("🛑 Зупинка автономного планувальника...")
-        self.btn_active.setStyleSheet("""
-            QPushButton {
-                font-size: 14px; 
-                font-weight: bold; 
-                color: #11111B; 
-                background-color: #A6E3A1; 
-                border-radius: 6px;
-                padding: 8px 16px;
-            }
-            QPushButton:hover {
-                background-color: #94E2D5;
-            }
-        """)
-        self.btn_active.setText("● ACTIVE")
-        self.copilot_service.stop_all()
-
-    def update_stats_ui(self):
-        """Оновлює статистику, зчитуючи дані з TradingCopilot."""
-        from utils.algorithms.backtesting.TradingCopilot import TradingCopilot
-        copilot = TradingCopilot(db_path=self.db_path)
-        
-        df = copilot.get_memory_df()
+    # ----------------------------------
+    # update_stats_ui, оновлення UI статистики
+    # ----------------------------------
+    # Параметри:
+    # df: pandas DataFrame
+    # best_comps: dict
+    def update_stats_ui(self, df, best_comps):
         if not df.empty:
             wr_avg = df['win_rate'].mean()
             pf_avg = df['profit_factor'].mean()
@@ -317,8 +246,6 @@ class CopilotView(QWidget):
             self.lbl_winrate.setText(f"Win Rate (середній): <span style='color:{color_wr}'>{wr_avg:.1f}%</span>")
             self.lbl_profit_factor.setText(f"Profit Factor: <span style='color:{color_pf}'>{pf_avg:.2f}</span>")
             self.lbl_records.setText(f"Записів у пам'яті: <span style='color:#89B4FA'>{records}</span>")
-            
-            best_comps = copilot.get_best_components()
             
             # Очищуємо старі компоненти
             while self.top_inner.count():

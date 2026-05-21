@@ -6,6 +6,52 @@ from PyQt6.QtCore import QObject, pyqtSignal, QThread
 from utils.DataBaseManager import DataBaseManager
 from core.services.gap_analyzer import GapAnalyzer
 
+class GapAnalyzerThread(QThread):
+    log_signal = pyqtSignal(str)
+    result_signal = pyqtSignal(dict, int) # (missing_gaps_per_table, total_real_gaps)
+    error_signal = pyqtSignal(str)
+    
+    def __init__(self, db_path):
+        super().__init__()
+        self.db_path = db_path
+        self.gap_analyzer = GapAnalyzer()
+        
+    def run(self):
+        try:
+            dbm = DataBaseManager(self.db_path)
+            tables = dbm.get_all_tables()
+            
+            missing_gaps_per_table = {}
+            total_real_gaps = 0
+            
+            for table in tables:
+                tf_ms = 60000
+                if table.endswith('_15m'): tf_ms = 15 * 60000
+                elif table.endswith('_1h'): tf_ms = 60 * 60000
+                elif table.endswith('_4h'): tf_ms = 4 * 60 * 60000
+                elif table.endswith('_1d'): tf_ms = 24 * 60 * 60000
+                
+                raw_gaps = dbm.get_time_gaps(table, tf_ms)
+                
+                if raw_gaps:
+                    asset_name = table.split('_')[0]
+                    real_gaps = self.gap_analyzer.filter_real_gaps(raw_gaps, asset_name, tf_ms)
+                    
+                    if real_gaps:
+                        missing_gaps_per_table[table] = real_gaps
+                        total_real_gaps += len(real_gaps)
+                        self.log_signal.emit(f"⚠️ {table}: знайдено {len(real_gaps)} реальних прогалин (відфільтровано вихідних: {len(raw_gaps) - len(real_gaps)})")
+                    else:
+                        self.log_signal.emit(f"✅ {table}: всі {len(raw_gaps)} прогалини є вихідними/святами. Дані цілі.")
+                else:
+                    self.log_signal.emit(f"✅ {table}: прогалин не знайдено.")
+            
+            dbm.disconnect()
+            self.result_signal.emit(missing_gaps_per_table, total_real_gaps)
+            
+        except Exception as e:
+            self.error_signal.emit(str(e))
+
 class AutoDownloaderThread(QThread):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool)
@@ -148,40 +194,10 @@ class CopilotService(QObject):
         self.status_update.emit("Аналіз бази даних...")
         self.log_update.emit(f"🔍 Запуск аналізу бази: {os.path.basename(db_path)}")
         
-        try:
-            dbm = DataBaseManager(db_path)
-            tables = dbm.get_all_tables()
-            
-            missing_gaps_per_table = {}
-            total_real_gaps = 0
-            
-            for table in tables:
-                # Очікуваний крок в мс
-                tf_ms = 60000
-                if table.endswith('_15m'): tf_ms = 15 * 60000
-                elif table.endswith('_1h'): tf_ms = 60 * 60000
-                elif table.endswith('_4h'): tf_ms = 4 * 60 * 60000
-                elif table.endswith('_1d'): tf_ms = 24 * 60 * 60000
-                
-                # Отримуємо всі прогалини
-                raw_gaps = dbm.get_time_gaps(table, tf_ms)
-                
-                if raw_gaps:
-                    asset_name = table.split('_')[0]
-                    # Відфільтровуємо свята та вихідні
-                    real_gaps = self.gap_analyzer.filter_real_gaps(raw_gaps, asset_name, tf_ms)
-                    
-                    if real_gaps:
-                        missing_gaps_per_table[table] = real_gaps
-                        total_real_gaps += len(real_gaps)
-                        self.log_update.emit(f"⚠️ {table}: знайдено {len(real_gaps)} реальних прогалин (відфільтровано вихідних: {len(raw_gaps) - len(real_gaps)})")
-                    else:
-                        self.log_update.emit(f"✅ {table}: всі {len(raw_gaps)} прогалини є вихідними/святами. Дані цілі.")
-                else:
-                    self.log_update.emit(f"✅ {table}: прогалин не знайдено.")
-            
-            dbm.disconnect()
-            
+        self._gap_analyzer_thread = GapAnalyzerThread(db_path)
+        self._gap_analyzer_thread.log_signal.connect(lambda msg: self.log_update.emit(msg))
+        
+        def on_result(missing_gaps_per_table, total_real_gaps):
             if missing_gaps_per_table:
                 if not use_ccxt and not use_massive:
                     self.log_update.emit(f"⚠️ Знайдено {total_real_gaps} прогалин, але всі джерела автозавантаження вимкнені в налаштуваннях.")
@@ -189,15 +205,18 @@ class CopilotService(QObject):
                 else:
                     self.log_update.emit(f"🚨 Загалом знайдено {total_real_gaps} прогалин, що потребують завантаження.")
                     self.status_update.emit("Потрібне автозавантаження")
-                    # Автоматичний запуск завантаження
                     self.start_auto_download(db_path, missing_gaps_per_table, use_ccxt, use_massive)
             else:
                 self.status_update.emit("База даних в ідеальному стані")
                 self.log_update.emit("🎉 Аналіз завершено. Усі дані повні (з урахуванням свят).")
                 
-        except Exception as e:
-            self.log_update.emit(f"❌ Помилка аналізу: {e}")
+        def on_error(err_str):
+            self.log_update.emit(f"❌ Помилка аналізу: {err_str}")
             self.status_update.emit("Помилка аналізу")
+            
+        self._gap_analyzer_thread.result_signal.connect(on_result)
+        self._gap_analyzer_thread.error_signal.connect(on_error)
+        self._gap_analyzer_thread.start()
 
     def start_auto_download(self, db_path, missing_gaps_per_table, use_ccxt=False, use_massive=False):
         if self.downloader_thread and self.downloader_thread.isRunning():

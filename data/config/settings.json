@@ -18,7 +18,7 @@
     "copilot_view": {
         "cb_auto_mode": true,
         "cb_auto_gen": true,
-        "cb_download_ccxt": true,
+        "cb_download_ccxt": false,
         "cb_download_massive": false,
         "cb_gen_signals": true
     }

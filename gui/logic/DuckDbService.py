@@ -1,48 +1,44 @@
 import os
 import pandas as pd
-import sys
-
 from utils.DataBaseManager import DataBaseManager
 
-# ==================================
-# Сервіс DuckDB
-# ==================================
-
-class DuckDBService:
-    """Сервіс для взаємодії між GUI та базою даних DuckDB"""
-    
+#==================================
+# DuckDbService
+#==================================
+class DuckDbService:
     # ----------------------------------
-    # Ініціалізація
+    # __init__, ініціалізація сервісу бази даних
     # ----------------------------------
-    
+    # Параметри: немає
     def __init__(self):
-        """Метод для ініціалізації сервісу бази даних"""
         self.db_manager = None
         self.current_db_path = None
         
     # ----------------------------------
-    # Підключення до бази
+    # connect, підключення до бази
     # ----------------------------------
-        
+    # Параметри:
+    # db_path (str): Шлях до файлу бази даних DuckDB
     def connect(self, db_path: str):
-        """Метод для підключення до бази даних за вказаним шляхом"""
-        self.disconnect() # Закриваємо попереднє з'єднання
+        self.disconnect()
         self.current_db_path = db_path
         self.db_manager = DataBaseManager(db_path, use_default=True)
         
+    # ----------------------------------
+    # disconnect, відключення від бази
+    # ----------------------------------
+    # Параметри: немає
     def disconnect(self):
-        """Метод для відключення від бази та зняття блокування DuckDB"""
         if self.db_manager:
             self.db_manager.disconnect()
             self.db_manager = None
             self.current_db_path = None
         
     # ----------------------------------
-    # Отримання списку таблиць
+    # get_tables, отримання списку таблиць
     # ----------------------------------
-        
+    # Параметри: немає
     def get_tables(self) -> list:
-        """Метод для повернення списку таблиць у підключеній базі"""
         if not self.db_manager:
             return []
         try:
@@ -52,11 +48,13 @@ class DuckDBService:
             return []
             
     # ----------------------------------
-    # Отримання даних з таблиці
+    # get_table_data, отримання даних з таблиці
     # ----------------------------------
-            
+    # Параметри:
+    # table_name (str): Назва таблиці
+    # limit (int): Кількість рядків для вибірки (пагінація)
+    # offset (int): Зміщення для вибірки (пагінація)
     def get_table_data(self, table_name: str, limit: int = 1000, offset: int = 0) -> pd.DataFrame:
-        """Метод для отримання даних з таблиці (з підтримкою пагінації)"""
         if not self.db_manager:
             return pd.DataFrame()
             
@@ -68,17 +66,21 @@ class DuckDBService:
             return pd.DataFrame()
             
     # ----------------------------------
-    # Отримання загальної кількості рядків
+    # execute_query, виконання довільного запиту
     # ----------------------------------
-            
+    # Параметри:
+    # query (str): SQL запит для виконання
     def execute_query(self, query: str):
-        """Виконує довільний SQL запит (наприклад, DROP TABLE)"""
         if not self.db_manager or not self.db_manager.conn:
             raise Exception("База даних не підключена.")
         self.db_manager.conn.execute(query)
 
+    # ----------------------------------
+    # get_table_count, отримання кількості рядків
+    # ----------------------------------
+    # Параметри:
+    # table_name (str): Назва таблиці
     def get_table_count(self, table_name: str) -> int:
-        """Метод для отримання загальної кількості рядків у таблиці"""
         if not self.db_manager:
             return 0
             
