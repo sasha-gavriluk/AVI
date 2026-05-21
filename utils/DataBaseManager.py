@@ -45,18 +45,30 @@ class DataBaseManager:
         self.disconnect()
 
     #------------------------------
+    # Валідація
+    #------------------------------
+    
+    def _validate_table_name(self, table_name: str):
+        """Перевіряє чи назва таблиці безпечна (проти SQL Injection)"""
+        import re
+        if not re.match(r'^[a-zA-Z0-9_]+$', table_name):
+            raise ValueError(f"Недійсна назва таблиці: {table_name}. Дозволені лише літери, цифри та підкреслення.")
+
+    #------------------------------
     # Створення таблиці
     #------------------------------
     
     @_handle_error
     def create_table(self, table_name, schema):
         "Параметри: table_name - назва таблиці, schema - рядок з описом стовпців (наприклад: 'id INTEGER, name TEXT')"
+        self._validate_table_name(table_name)
         query = f"CREATE TABLE IF NOT EXISTS {table_name} ({schema})"
         self.conn.execute(query)
 
     @_handle_error
     def create_index(self, table_name: str, column: str):
         """Створює індекс якщо не існує"""
+        self._validate_table_name(table_name)
         index_name = f"idx_{table_name}_{column}"
         self.conn.execute(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name}({column})")
 
@@ -67,6 +79,7 @@ class DataBaseManager:
     @_handle_error
     def insert_data_from_pandas(self, table_name, df: pd.DataFrame):
         "Параметри: table_name - назва таблиці, df - pandas DataFrame"
+        self._validate_table_name(table_name)
         if 'timestamp' in df.columns:
             df = df.drop_duplicates(subset='timestamp', keep='last')
 
@@ -82,6 +95,7 @@ class DataBaseManager:
     @_handle_error
     def insert_data_from_pandas_append(self, table_name, df: pd.DataFrame):
         "Параметри: table_name - назва таблиці, df - pandas DataFrame"
+        self._validate_table_name(table_name)
 
         if 'timestamp' not in df.columns:
             # Для таблиць без timestamp (наприклад, результатів бектесту) 
@@ -114,6 +128,7 @@ class DataBaseManager:
     @_handle_error
     def insert_data_from_pandas_auto(self, table_name, df: pd.DataFrame):
         "Параметри: table_name - назва таблиці, df - pandas DataFrame"
+        self._validate_table_name(table_name)
 
         if self.conn.execute(f"SELECT table_name FROM information_schema.tables WHERE table_name = '{table_name}'").fetchone() is None:
             self.insert_data_from_pandas(table_name, df)
@@ -143,6 +158,7 @@ class DataBaseManager:
     @_handle_error
     def get_data_as_dataframe(self, table_name):
         "Параметри: table_name - назва таблиці"
+        self._validate_table_name(table_name)
         df = self.conn.execute(f"SELECT * FROM {table_name}").fetchdf()
         return df
 
@@ -157,6 +173,7 @@ class DataBaseManager:
     @_handle_error
     def _get_last_record_as_dataframe(self, table_name):
         "Параметри: table_name - назва таблиці"
+        self._validate_table_name(table_name)
         df = self.conn.execute(f"SELECT * FROM {table_name} WHERE timestamp = (SELECT MAX(timestamp) FROM {table_name})").fetchdf()
         return df
     
@@ -167,6 +184,7 @@ class DataBaseManager:
     @_handle_error
     def get_data_by_number_range(self, table_name, number):
         "Параметри: table_name - назва таблиці, number - кількість рядків для отримання"
+        self._validate_table_name(table_name)
         try:
             df = self.conn.execute(f"SELECT * FROM {table_name} ORDER BY timestamp DESC LIMIT {number}").fetchdf()
         except Exception as e:
@@ -185,6 +203,7 @@ class DataBaseManager:
         timeframe_ms: очікуваний крок між свічками в мілісекундах (60000 для 1 хв).
         Повертає список словників: [{'gap_start': 1600000000, 'gap_end': 1600003600}, ...]
         """
+        self._validate_table_name(table_name)
         
         query = f"""
             WITH TimeCheck AS (

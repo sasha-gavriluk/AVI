@@ -23,6 +23,23 @@ class LaboratoryBacktesterDealWriter:
         self.settings = settings
         self.current_balance = settings.initial_balance if settings else 10000.0
 
+        import os, json
+        self.config_mode = "Standard"
+        self.bo_payout = 80.0
+        self.bo_bet_size = 10.0
+        
+        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'config', 'settings.json'))
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    mode_data = data.get("trading_mode", {})
+                    self.config_mode = mode_data.get("type", "Standard")
+                    self.bo_payout = mode_data.get("bo_payout_percent", 80.0)
+                    self.bo_bet_size = mode_data.get("bo_bet_size", 10.0)
+            except Exception:
+                pass
+
         self.id_trade_info = pd.DataFrame(columns=['TradeNumber', 'TradeType', 'EntryPrice', 'EntryTimestamp', 'ExitPrice', 'ExitTimestamp', 'Profit', 'Balance', 'Status'])
 
         self.df = self._add_trade_columns()
@@ -217,16 +234,34 @@ class LaboratoryBacktesterDealWriter:
         trade_type = trade_row['TradeType']
         entry_price = trade_row['EntryPrice']
         
-        commission = self.settings.commission if self.settings else 0.0
-        spread = self.settings.spread if self.settings else 0.0
-        
-        # Профіт (спрощений розрахунок в одиницях ціни)
-        if trade_type == 'buy':
-            profit = (exit_price - entry_price) - commission - spread
-        elif trade_type == 'sell':
-            profit = (entry_price - exit_price) - commission - spread
+        if getattr(self, "config_mode", "Standard") == "Binary Options":
+            if trade_type == 'buy':
+                if exit_price > entry_price:
+                    profit = self.bo_bet_size * (self.bo_payout / 100.0)
+                elif exit_price < entry_price:
+                    profit = -self.bo_bet_size
+                else:
+                    profit = 0.0 # Нічия
+            elif trade_type == 'sell':
+                if exit_price < entry_price:
+                    profit = self.bo_bet_size * (self.bo_payout / 100.0)
+                elif exit_price > entry_price:
+                    profit = -self.bo_bet_size
+                else:
+                    profit = 0.0 # Нічия
+            else:
+                profit = 0.0
         else:
-            profit = 0.0
+            # СТАНДАРТНИЙ РОЗРАХУНОК (CFD/Forex/Crypto)
+            commission = self.settings.commission if self.settings else 0.0
+            spread = self.settings.spread if self.settings else 0.0
+
+            if trade_type == 'buy':
+                profit = (exit_price - entry_price) - commission - spread
+            elif trade_type == 'sell':
+                profit = (entry_price - exit_price) - commission - spread
+            else:
+                profit = 0.0
             
         self.current_balance += profit
 

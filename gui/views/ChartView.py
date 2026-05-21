@@ -7,12 +7,14 @@ os.environ["LANG"] = "en_US.UTF-8"
 os.environ["LC_ALL"] = "en_US.UTF-8"
 import finplot as fplt
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QMenuBar
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QMenuBar, QSplitter
 from PyQt6.QtGui import QAction
+from PyQt6.QtCore import Qt
 
 # Використовуємо конфіг для шляхів
 from utils.DataBaseManager import DataBaseManager
 from utils.config import db_dir
+from gui.views.TradeDetailPanel import TradeDetailPanel
 
 class TradingChartApp(QWidget):
     def __init__(self):
@@ -24,9 +26,26 @@ class TradingChartApp(QWidget):
         self.current_db = None
         self.current_table = None
         self.df = None
+        self.trades_df = None
         self.trades_drawn = False
         self.current_trades_table = "backtest_results"
         self.is_loading = False
+        
+        # Спліттер для графіка та панелі угод
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.layout.addWidget(self.splitter)
+        
+        # Контейнер для графіка
+        self.chart_container = QWidget()
+        self.chart_layout = QVBoxLayout(self.chart_container)
+        self.chart_layout.setContentsMargins(0, 0, 0, 0)
+        self.splitter.addWidget(self.chart_container)
+        
+        # Панель деталей
+        self.detail_panel = TradeDetailPanel()
+        self.detail_panel.hide() # Ховаємо поки немає кліку
+        self.splitter.addWidget(self.detail_panel)
+        self.splitter.setSizes([800, 200])
         
         # Налаштування кольорів Finplot
         fplt.foreground = '#eef'
@@ -81,7 +100,7 @@ class TradingChartApp(QWidget):
                 
                 for t in tables:
                     # Фільтруємо системні таблиці та будь-які результати бектестів
-                    if "backtest" not in t.lower() and not t.startswith("sqlite_"):
+                    if "backtest" not in t.lower() and "auto_learn" not in t.lower() and not t.startswith("sqlite_"):
                         action = QAction(f"{t} ({db})", self)
                         # Замикаємо значення в lambda
                         action.triggered.connect(lambda checked, d=db, t_name=t: self.load_chart(d, t_name))
@@ -119,12 +138,16 @@ class TradingChartApp(QWidget):
         # ми створюємо його ОДИН РАЗ, а далі просто очищуємо і малюємо заново.
         if self.ax is None:
             self.ax = fplt.create_plot()
-            self.layout.addWidget(self.ax.vb.win)
+            self.chart_layout.addWidget(self.ax.vb.win)
             # Підключаємо подію зміни X-діапазону для динамічної підгрузки
             self.ax.vb.sigXRangeChanged.connect(self.on_x_range_changed)
+            # Підключаємо клік
+            self.ax.scene().sigMouseClicked.connect(self.on_chart_clicked)
         else:
             self.ax.clear()
             self.ax.vb.reset()
+            self.detail_panel.hide()
+            self.trades_df = None
             # Скидаємо старий датасорс
             if hasattr(self.ax.vb, 'datasrc'):
                 self.ax.vb.datasrc = None
@@ -247,6 +270,7 @@ class TradingChartApp(QWidget):
             print("Таблиця угод пуста.")
             return
             
+        self.trades_df = trades_df
         trades_plotted = 0
         
         # Створюємо порожні Series для маркерів (NaN) з таким самим часовим індексом
@@ -359,4 +383,55 @@ class TradingChartApp(QWidget):
         
         # Малюємо нові угоди
         self.show_trades(trades_table)
+
+    def on_chart_clicked(self, event):
+        if not self.trades_drawn or self.trades_df is None or self.df is None:
+            return
+            
+        if event.button() != 1: # Left click
+            return
+            
+        # Отримуємо X координату кліку (індекс в датафреймі)
+        pos = event.scenePos()
+        view_coords = self.ax.vb.mapSceneToView(pos)
+        x_idx = int(round(view_coords.x()))
+        
+        if x_idx < 0 or x_idx >= len(self.df):
+            return
+            
+        click_time = self.df.index[x_idx]
+        
+        # Шукаємо угоду, яка відкрилась або закрилась близько до цього часу
+        # Конвертуємо час кліку в ms
+        click_ms = click_time.timestamp() * 1000
+        
+        # Знаходимо найближчу угоду (в межах кількох свічок, напр. 5)
+        tf_ms = 15 * 60000 # Припускаємо 15м
+        if len(self.df) > 1:
+            tf_ms = (self.df.index[1] - self.df.index[0]).total_seconds() * 1000
+            
+        threshold = tf_ms * 3
+        
+        closest_trade = None
+        min_dist = float('inf')
+        
+        for _, trade in self.trades_df.iterrows():
+            entry_ms = trade['EntryTimestamp']
+            exit_ms = trade['ExitTimestamp']
+            
+            dist_entry = abs(entry_ms - click_ms)
+            dist_exit = abs(exit_ms - click_ms)
+            
+            if dist_entry < min_dist and dist_entry <= threshold:
+                min_dist = dist_entry
+                closest_trade = trade
+            if dist_exit < min_dist and dist_exit <= threshold:
+                min_dist = dist_exit
+                closest_trade = trade
+                
+        if closest_trade is not None:
+            self.detail_panel.show_trade(closest_trade)
+            self.detail_panel.show()
+        else:
+            self.detail_panel.hide()
 

@@ -27,7 +27,9 @@ class NGramAnalyzer(Analyzer):
                  tolerance: int = 1,
                  top_patterns: int = None,
                  force_update: bool = False,
-                 prediction_road: int = 1):
+                 prediction_road: int = 1,
+                 data_df: pd.DataFrame = None,
+                 wce_column_name: str = "WCE"):
         """
         Параметри:
         db_manager: DataBaseManager
@@ -53,6 +55,8 @@ class NGramAnalyzer(Analyzer):
         self.top_patterns = top_patterns
         self.force_update = force_update
         self.prediction_road = prediction_road
+        self.data_df = data_df
+        self.wce_column_name = wce_column_name
         
         self.history = []
         
@@ -89,14 +93,20 @@ class NGramAnalyzer(Analyzer):
                 print(f"Помилка читання {pred_file}: {e}. Перегенерація прогнозів...")
                 
         # Генерація прогнозів
-        print("Генерація нових прогнозів NGram (використовуючи колонку WCE з бази даних)...")
+        print("Генерація нових прогнозів NGram (використовуючи колонку WCE)...")
         
-        df = self.db_manager.get_data_as_dataframe(self.table_name)
-        if 'WCE' not in df.columns:
-            raise ValueError(f"Колонка 'WCE' відсутня в таблиці {self.table_name}")
+        if self.data_df is not None:
+            df = self.data_df
+        elif self.db_manager is not None and self.table_name is not None:
+            df = self.db_manager.get_data_as_dataframe(self.table_name)
+        else:
+            raise ValueError("Немає даних для генерації прогнозів (передайте data_df або db_manager).")
+            
+        if self.wce_column_name not in df.columns:
+            raise ValueError(f"Колонка '{self.wce_column_name}' відсутня в таблиці/даних")
             
         predictor = NGramPredictor(df, prediction_road=self.prediction_road)
-        predictor._analysis(column_name="WCE", num_tokens=self.ngram_length, top=self.top, min_occurrences=self.min_occurrences, use_fuzzy_logic=True)
+        predictor._analysis(column_name=self.wce_column_name, num_tokens=self.ngram_length, top=self.top, min_occurrences=self.min_occurrences, use_fuzzy_logic=True)
         predictor.save_predictions_to_file(filename=pred_file)
         
         with open(pred_file, "r") as f:
@@ -145,7 +155,7 @@ class NGramAnalyzer(Analyzer):
         Повертає 'BUY', 'SELL', 'CLOSE' або None.
         """
         
-        token = window['WCE'].iloc[0]
+        token = window[self.wce_column_name].iloc[0]
         self.history.append(token)
         
         # Зберігаємо лише останні ngram_length токенів

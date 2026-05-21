@@ -211,6 +211,12 @@ class BacktestView(QWidget):
         btn_layout.addWidget(self.btn_show_chart)
         right_layout.addLayout(btn_layout)
         
+        wfv_layout = QHBoxLayout()
+        self.btn_run_wfv = QPushButton("🔄 Walk-Forward Validation")
+        self.btn_run_wfv.setStyleSheet("background-color: #313244; color: #A6ADC8; padding: 8px; font-weight: bold;")
+        wfv_layout.addWidget(self.btn_run_wfv)
+        right_layout.addLayout(wfv_layout)
+        
         # --- БЛОК АВТО НАВЧАННЯ ШІ ---
         self.ai_learn_group = QGroupBox("🤖 Авто навчання ШІ")
         self.ai_learn_group.setStyleSheet("""
@@ -273,6 +279,7 @@ class BacktestView(QWidget):
         
         self.btn_run.clicked.connect(self.on_run_clicked)
         self.btn_show_chart.clicked.connect(self.on_show_chart_clicked)
+        self.btn_run_wfv.clicked.connect(self.on_wfv_clicked)
         
         # Завантажуємо бази даних (після створення всіх віджетів)
         self._load_databases()
@@ -1086,6 +1093,34 @@ strategy = Strategy(entry_rule=entry, exit_rule=exit)
         self.log_output.append(f"Передача запиту на графік для {table}...")
         self.request_show_chart.emit(db_name, table)
 
+    def on_wfv_clicked(self):
+        self.log_output.clear()
+        
+        # Перевіряємо наявність об'єкту strategy в коді
+        code = self.code_editor.toPlainText()
+        if "strategy = Strategy(" not in code:
+            self._safe_append_html("<div style='color: #ff453a; font-family: monospace; font-weight: bold;'>❗ У коді редактора відсутній об'єкт Strategy!</div><br>")
+            return
+            
+        table_name = self.table_combo.currentText()
+        if not table_name:
+            self._safe_append_html("<div style='color: #ff453a; font-family: monospace; font-weight: bold;'>❗ Оберіть Актив!</div><br>")
+            return
+            
+        self._safe_append_html(f"<div style='color: #A6ADC8; font-family: monospace; font-weight: bold;'>🔄 Запуск Walk-Forward Validation для {table_name}...</div><br>")
+        self.btn_run_wfv.setEnabled(False)
+        self.btn_run.setEnabled(False)
+        
+        self._wfv_worker = WfvWorker(code, "main.duckdb", table_name)
+        self._wfv_worker.log_message.connect(self._on_log_message)
+        
+        def on_finished():
+            self.btn_run_wfv.setEnabled(True)
+            self.btn_run.setEnabled(True)
+            
+        self._wfv_worker.finished.connect(on_finished)
+        self._wfv_worker.start()
+
     def on_auto_learn_clicked(self):
         if hasattr(self, "_auto_worker") and self._auto_worker.isRunning():
             self._auto_worker.stop()
@@ -1534,3 +1569,72 @@ class AutoLearnWorker(QThread):
 
     def stop(self):
         self.is_running = False
+
+class WfvWorker(QThread):
+    log_message = pyqtSignal(str)
+    finished = pyqtSignal()
+    
+    def __init__(self, code: str, db_path: str, table_name: str):
+        super().__init__()
+        self.code = code
+        self.db_path = db_path
+        self.table_name = table_name
+        
+    def run(self):
+        try:
+            from utils.rules_engine import Indicator, Pattern, Algorithm, Strategy
+            from core.services.backtest_service import BacktestService
+            
+            # Ініціалізація стратегії
+            local_ns = {
+                "Indicator": Indicator,
+                "Pattern": Pattern,
+                "Algorithm": Algorithm,
+                "Strategy": Strategy,
+            }
+            exec(self.code, local_ns)
+            strategy = local_ns.get("strategy")
+            
+            service = BacktestService(self.db_path)
+            results = service.run_wfv(strategy, self.table_name, num_windows=5, train_ratio=0.7)
+            
+            html = ["<div style='font-family: monospace; font-size: 13px;'>"]
+            html.append("<table style='width: 100%; text-align: left; border-collapse: collapse;'>")
+            html.append("<tr style='border-bottom: 1px solid #444;'><th>Вікно</th><th>Train PF</th><th>Test PF</th><th>Test WR</th><th>Robust?</th></tr>")
+            
+            total_robust = 0
+            for r in results:
+                window = r['window']
+                train_pf = r['train_pf']
+                test_pf = r['test_pf']
+                test_wr = r['test_wr']
+                robust = r['is_robust']
+                
+                if robust:
+                    total_robust += 1
+                    rob_str = "<span style='color:#32d74b'>✅ Так</span>"
+                else:
+                    rob_str = "<span style='color:#ff453a'>❌ Ні</span>"
+                    
+                html.append(f"<tr style='border-bottom: 1px solid #333;'>")
+                html.append(f"<td>{window}</td>")
+                html.append(f"<td>{train_pf:.2f}</td>")
+                html.append(f"<td>{test_pf:.2f}</td>")
+                html.append(f"<td>{test_wr:.1f}%</td>")
+                html.append(f"<td>{rob_str}</td>")
+                html.append(f"</tr>")
+                
+            html.append("</table>")
+            
+            robustness_pct = (total_robust / len(results)) * 100
+            color = "#32d74b" if robustness_pct >= 60 else "#ff453a"
+            html.append(f"<br><span style='font-weight:bold; color:{color}'>Надійність: {robustness_pct:.1f}% ({total_robust}/{len(results)} вікон)</span>")
+            html.append("</div><br>")
+            
+            self.log_message.emit("".join(html))
+            
+        except Exception as e:
+            import traceback
+            self.log_message.emit(f"<div style='color: #ff453a'>Помилка WFV: {traceback.format_exc()}</div>")
+        finally:
+            self.finished.emit()
