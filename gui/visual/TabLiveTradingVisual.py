@@ -3,16 +3,23 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QComboBox, QListWidget, QListWidgetItem)
 from PyQt6.QtCore import Qt
 
-from core.services.trading_service import TradingService
-
-class LiveTradingView(QWidget):
+#==================================
+# TabLiveTradingVisual
+#==================================
+class TabLiveTradingVisual(QWidget):
+    # ----------------------------------
+    # __init__, ініціалізація візуалу LiveTrading
+    # ----------------------------------
+    # Параметри:
+    # parent: батьківський віджет
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.trading_service = TradingService()
-        self.trading_service.log_update.connect(self.append_log)
-        
         self.init_ui()
 
+    # ----------------------------------
+    # init_ui, побудова інтерфейсу
+    # ----------------------------------
+    # Параметри: немає
     def init_ui(self):
         main_layout = QVBoxLayout(self)
         
@@ -69,12 +76,10 @@ class LiveTradingView(QWidget):
         # 3. Controls
         self.btn_start = QPushButton("▶ ЗАПУСТИТИ")
         self.btn_start.setStyleSheet("padding: 10px; background-color: #A6E3A1; color: #11111B; font-weight: bold;")
-        self.btn_start.clicked.connect(self.start_trading)
         left_layout.addWidget(self.btn_start)
         
         self.btn_stop = QPushButton("■ ЗУПИНИТИ")
         self.btn_stop.setStyleSheet("padding: 10px; background-color: #F38BA8; color: #11111B; font-weight: bold;")
-        self.btn_stop.clicked.connect(self.stop_trading)
         self.btn_stop.setEnabled(False)
         left_layout.addWidget(self.btn_stop)
         
@@ -92,11 +97,11 @@ class LiveTradingView(QWidget):
         pos_group.setStyleSheet("QGroupBox { border: 1px solid #313244; border-radius: 6px; padding-top: 15px; color: #A6ADC8; font-weight: bold; }")
         pos_layout = QVBoxLayout(pos_group)
         
-        pos_list = QListWidget()
-        pos_list.setStyleSheet("background: transparent; border: none; color: #CDD6F4; font-family: monospace;")
-        pos_list.addItem("EURUSD  BUY   1.08521  +22пп  ✅ [✗]")
-        pos_list.addItem("BTC/USDT SELL 67500.0  -5пп   ❌ [✗]")
-        pos_layout.addWidget(pos_list)
+        self.pos_list = QListWidget()
+        self.pos_list.setStyleSheet("background: transparent; border: none; color: #CDD6F4; font-family: monospace;")
+        self.pos_list.addItem("EURUSD  BUY   1.08521  +22пп  ✅ [✗]")
+        self.pos_list.addItem("BTC/USDT SELL 67500.0  -5пп   ❌ [✗]")
+        pos_layout.addWidget(self.pos_list)
         right_layout.addWidget(pos_group)
         
         # 5. Stats
@@ -126,25 +131,3 @@ class LiveTradingView(QWidget):
         splitter.addWidget(right_panel)
         splitter.setSizes([200, 650])
         main_layout.addWidget(splitter)
-        
-    def start_trading(self):
-        self.btn_start.setEnabled(False)
-        self.btn_stop.setEnabled(True)
-        
-        if self.rb_demo.isChecked(): mode = "demo"
-        elif self.rb_paper.isChecked(): mode = "paper"
-        elif self.rb_real.isChecked(): mode = "real"
-        else: mode = "signal"
-            
-        self.trading_service.set_mode(mode)
-        self.trading_service.start()
-        
-    def stop_trading(self):
-        self.btn_start.setEnabled(True)
-        self.btn_stop.setEnabled(False)
-        self.trading_service.stop()
-
-    def append_log(self, text):
-        import datetime
-        now = datetime.datetime.now().strftime("%H:%M:%S")
-        self.log_console.append(f"[{now}] {text}")
