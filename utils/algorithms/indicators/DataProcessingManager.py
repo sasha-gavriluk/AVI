@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-from scipy.signal import find_peaks
 from utils.algorithms.WrapCandleEngine import WCE
 from utils.algorithms.indicators.AlgorithmProcessor import AlgorithmProcessor
 from utils.algorithms.indicators.PatternDetector import PatternDetector

@@ -14,9 +14,37 @@ class MassiveModule:
     # Ініціалізація
     #------------------------------
 
-    def __init__(self, db_manager: DataBaseManager, api_key: str):
+    def __init__(self, db_manager: DataBaseManager, api_key: str, free_tier: bool = True, free_requests: int = 5, free_wait_minutes: int = 3):
         self.db_manager = db_manager
         self.client = RESTClient(api_key)
+        self.free_tier = free_tier
+        self.free_requests = free_requests
+        self.free_wait_minutes = free_wait_minutes
+        self.request_timestamps = []
+
+    #------------------------------
+    # Внутрішній метод перевірки лімітів (динамічно з налаштувань)
+    #------------------------------
+    def _check_rate_limit(self):
+        if not self.free_tier:
+            return
+            
+        current_time = time.time()
+        window_seconds = self.free_wait_minutes * 60.0
+        self.request_timestamps = [t for t in self.request_timestamps if current_time - t < window_seconds]
+        
+        if len(self.request_timestamps) >= self.free_requests:
+            oldest = self.request_timestamps[0]
+            wait_time = window_seconds - (current_time - oldest)
+            if wait_time > 0:
+                print(f"⏳ Massive API ліміт ({self.free_requests} зап/{self.free_wait_minutes}хв). Очікування {wait_time:.1f} сек...")
+                time.sleep(wait_time)
+            
+            # Оновлюємо після очікування
+            current_time = time.time()
+            self.request_timestamps = [t for t in self.request_timestamps if current_time - t < window_seconds]
+            
+        self.request_timestamps.append(time.time())
 
     #------------------------------
     # Отримання даних про агрегації (OHLCV)
@@ -27,6 +55,8 @@ class MassiveModule:
     @_handle_error
     def _fetch_ohlcv(self, symbol, multiplier, timeframe, start_date=None, end_date=None, limit=None, adjusted=True, sort="asc"):
         "Параметри: symbol - торговий символ (наприклад, 'C:EURUSD'), multiplier - множник, timeframe - таймфрейм (наприклад, 'minute'), start_date - початкова дата (формат 'YYYY-MM-DD'), end_date - кінцева дата (формат 'YYYY-MM-DD'), limit - максимальна кількість записів, adjusted - чи враховувати корекції, sort - порядок сортування ('asc' або 'desc')"
+        
+        self._check_rate_limit()
         
         aggs = list(self.client.list_aggs(
             symbol,

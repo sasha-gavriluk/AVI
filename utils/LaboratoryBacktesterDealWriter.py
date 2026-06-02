@@ -28,7 +28,8 @@ class LaboratoryBacktesterDealWriter:
         self.bo_payout = 80.0
         self.bo_bet_size = 10.0
         
-        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'config', 'settings.json'))
+        from utils.PathManager import PathManager
+        config_path = PathManager.get_settings_path()
         if os.path.exists(config_path):
             try:
                 with open(config_path, 'r', encoding='utf-8') as f:

@@ -7,9 +7,70 @@ import random
 from multiprocessing import Pool
 import os
 
+def _scan_single_market(args: tuple) -> dict:
+    strategy_code, df, table_name, strat_name = args
+    try:
+        from utils.algorithms.backtesting.MarketRunner import MarketRunner
+        from utils.rules_engine.core import Indicator, Pattern, Algorithm, Expression, Constant
+        from utils.rules_engine.strategy import Strategy
+        import numpy as np
+        
+        safe_globals = {
+            '__builtins__': {
+                'True': True, 'False': False, 'None': None,
+                'min': min, 'max': max, 'abs': abs,
+                'float': float, 'int': int, 'str': str,
+                'bool': bool, 'list': list, 'dict': dict,
+                'tuple': tuple, 'set': set,
+                'len': len, 'sum': sum
+            },
+            'Strategy': Strategy,
+            'Indicator': Indicator,
+            'Pattern': Pattern,
+            'Algorithm': Algorithm,
+            'Expression': Expression,
+            'Constant': Constant
+        }
+        
+        clean_code = "\n".join([line for line in strategy_code.split("\n") if not line.strip().startswith("import") and not line.strip().startswith("from")])
+        
+        local_scope = {}
+        exec(clean_code, safe_globals, local_scope)
+        strategy_obj = local_scope.get("strategy")
+        
+        if df is None or df.empty or len(df) < 50:
+            return {"success": False, "error": "Недостатньо даних", "table": table_name, "strategy": strat_name}
+            
+        from utils.rules_engine import IndicatorRegistry
+        registry = IndicatorRegistry(df)
+        entry_series = strategy_obj.entry_rule.evaluate(registry)
+        
+        last_idx = df.index[-1]
+        prev_idx = df.index[-2] if len(df) > 1 else last_idx
+        
+        signal_ready = bool(entry_series.loc[prev_idx]) if isinstance(entry_series.loc[prev_idx], (bool, np.bool_)) else False
+        signal_warning = bool(entry_series.loc[last_idx]) if isinstance(entry_series.loc[last_idx], (bool, np.bool_)) else False
+        
+        direction = "BUY"
+        import re
+        match = re.search(r'Напрямок:\s*(BUY|SELL)', strategy_code)
+        if match:
+            direction = match.group(1)
+            
+        return {
+            "success": True, 
+            "table": table_name,
+            "strategy": strat_name,
+            "direction": direction,
+            "signal_ready": signal_ready,
+            "signal_warning": signal_warning and not signal_ready
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e), "table": table_name, "strategy": strat_name}
+
 def _run_single_strategy(args: tuple) -> dict:
     """Ізольована функція для одного процесу (має бути на рівні модуля)."""
-    strategy_code, db_path, table_name = args
+    strategy_code, df, table_name = args
     try:
         from utils.algorithms.backtesting.MarketRunner import MarketRunner
         from utils.rules_engine.core import Indicator, Pattern, Algorithm, Expression, Constant
@@ -46,17 +107,17 @@ def _run_single_strategy(args: tuple) -> dict:
         exec(strategy_code, safe_globals, local_scope)
         strategy_obj = local_scope.get("strategy")
         
-        # Кожен процес відкриває своє підключення
+        # Передаємо df в runner без створення DataBaseManager
         runner = MarketRunner(
             strategy=strategy_obj,
-            db_path=db_path,
+            db_path=None,
             db_table_path=table_name
         )
         
         # Унікальна таблиця для кожного процесу щоб уникнути конфліктів
         import time, random
         result_table = f"backtest_{int(time.time()*1000)}_{random.randint(1000, 9999)}"
-        df_trades = runner.run(result_table_name=result_table)
+        df_trades = runner.run(result_table_name=result_table, df=df)
         
         # Аналіз індикаторів з AST
         indicators = []
@@ -88,8 +149,19 @@ def _run_single_strategy(args: tuple) -> dict:
                     'total_trades': total_trades
                 }
         
+        # Формуємо правильний об'єкт контексту
+        parts = table_name.split('_') if table_name else []
+        asset = "_".join(parts[:-1]) if len(parts) >= 2 else "UNKNOWN"
+        timeframe = parts[-1] if len(parts) >= 2 else "UNKNOWN"
+        context_dict = {
+            "asset": asset,
+            "timeframe": timeframe,
+            "period_start": str(df.index[0]) if df is not None and not df.empty else "",
+            "period_end": str(df.index[-1]) if df is not None and not df.empty else ""
+        }
+        
         # Відправляємо контекст і результати
-        return {"success": True, "result": {"context": strategy_code, "indicators": indicators, "performance": performance}, "code": strategy_code}
+        return {"success": True, "result": {"context": context_dict, "indicators": indicators, "performance": performance}, "code": strategy_code}
     except Exception as e:
         return {"success": False, "error": str(e), "code": strategy_code}
 
@@ -177,21 +249,43 @@ class TradingCopilot:
         if n_workers is None:
             n_workers = max(1, (os.cpu_count() or 4) - 1)
             
+        import pandas as pd
+        from utils.DataBaseManager import DataBaseManager
+        import random
+        
+        df = None
+        with DataBaseManager(self.db_path) as db:
+            if not table_name:
+                tables = [t for t in db.get_all_tables() if not t.startswith('sqlite') and not t.startswith('copilot_') and not t.startswith('rules_') and not t.startswith('backtest_') and not t.startswith('temp_sim_')]
+                if tables:
+                    table_name = random.choice(tables)
+            
+            if table_name:
+                df = db.get_data_as_dataframe(table_name)
+            
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            print(f"Помилка: Дані для таблиці {table_name} відсутні або пошкоджені.")
+            return
+
         print(f"Генерація {n_strategies} стратегій...")
         strategy_codes = [generator.generate(direction) for _ in range(n_strategies)]
         
         args_list = [
-            (code, self.db_path, table_name)
+            (code, df, table_name)
             for code in strategy_codes if code is not None
         ]
         
         print(f"Запуск {len(args_list)} стратегій на {n_workers} ядрах...")
         results = []
-        with Pool(processes=n_workers) as pool:
+        pool = Pool(processes=n_workers)
+        try:
             for i, result in enumerate(pool.imap_unordered(_run_single_strategy, args_list)):
                 results.append(result)
                 if (i+1) % 50 == 0:
                     print(f"  {i+1}/{len(args_list)} завершено...")
+        finally:
+            pool.close()
+            pool.join()
                     
         successful = [r for r in results if r['success']]
         print(f"Успішно: {len(successful)}/{len(results)}")
@@ -203,6 +297,50 @@ class TradingCopilot:
                 performance=r['result']['performance'],
                 note="auto_training"
             )
+            
+        import time
+        scored_results = []
+        for r in successful:
+            perf = r['result']['performance']
+            wr = perf.get('win_rate', 0)
+            pf = perf.get('profit_factor', 0)
+            tt = perf.get('total_trades', 0)
+            if tt >= 10:
+                score = (wr / 100) * 0.4 + min(pf, 3.0) / 3.0 * 0.6
+                r['score'] = score
+                scored_results.append(r)
+                
+        scored_results.sort(key=lambda x: x['score'], reverse=True)
+        
+        from utils.PathManager import PathManager
+        copilot_dir = os.path.join(PathManager.get_strategies_dir(), 'Copilot')
+        os.makedirs(copilot_dir, exist_ok=True)
+        
+        for r in scored_results:
+            if r['score'] < 0.6: continue
+            code = r['code']
+            existing_files = []
+            for f in os.listdir(copilot_dir):
+                if f.endswith('.py'):
+                    try:
+                        score_str = f.split('_')[1]
+                        existing_files.append((f, float(score_str)))
+                    except: pass
+            
+            existing_files.sort(key=lambda x: x[1])
+            
+            if len(existing_files) < 10:
+                filename = f"strat_{r['score']:.4f}_{int(time.time()*1000)}.py"
+                with open(os.path.join(copilot_dir, filename), 'w', encoding='utf-8') as f:
+                    f.write(code)
+            else:
+                worst_file, worst_score = existing_files[0]
+                if r['score'] > worst_score:
+                    try: os.remove(os.path.join(copilot_dir, worst_file))
+                    except: pass
+                    filename = f"strat_{r['score']:.4f}_{int(time.time()*1000)}.py"
+                    with open(os.path.join(copilot_dir, filename), 'w', encoding='utf-8') as f:
+                        f.write(code)
             
         return results
 
@@ -287,16 +425,20 @@ class TradingCopilot:
                 exact_match['time_weight'] = exact_match['timestamp'].apply(self._time_decay_weight)
                 tw_sum = exact_match['time_weight'].sum()
                 if tw_sum > 0:
-                    avg_win = (exact_match["win_rate"] * exact_match['time_weight']).sum() / tw_sum
-                    avg_pf = (exact_match["profit_factor"] * exact_match['time_weight']).sum() / tw_sum
+                    avg_win = float((exact_match["win_rate"] * exact_match['time_weight']).sum() / tw_sum)
+                    avg_pf = float((exact_match["profit_factor"] * exact_match['time_weight']).sum() / tw_sum)
                 else:
-                    avg_win = exact_match["win_rate"].mean()
-                    avg_pf = exact_match["profit_factor"].mean()
+                    avg_win = float(exact_match["win_rate"].mean())
+                    avg_pf = float(exact_match["profit_factor"].mean())
             else:
-                avg_win = exact_match["win_rate"].mean()
-                avg_pf = exact_match["profit_factor"].mean()
+                avg_win = float(exact_match["win_rate"].mean())
+                avg_pf = float(exact_match["profit_factor"].mean())
                 
             last_note = exact_match.iloc[-1]["note"]
+            
+            import math
+            if math.isnan(avg_win): avg_win = 0.0
+            if math.isnan(avg_pf): avg_pf = 0.0
             
             return {
                 "status": "exact_match",
@@ -870,3 +1012,158 @@ class TradingCopilot:
             ast.Gt: ">", ast.GtE: ">="
         }
         return op_map.get(type(op), "?")
+
+    # =========================================================================
+    # СИГНАЛЬНИЙ СКАНЕР (АВТОМАТИЗАЦІЯ)
+    # =========================================================================
+    
+    def scan_markets_for_signals(self, active_strategies_paths: list, notifier=None, target_assets=None, target_timeframes=None):
+        import os
+        from utils.DataBaseManager import DataBaseManager
+        
+        from utils.PathManager import PathManager
+        
+        strategies = {}
+        for path in active_strategies_paths:
+            clean_path = path[5:] if path.startswith("Code/") else path
+            full_path = os.path.join(PathManager.get_user_data_dir(), clean_path)
+            if os.path.exists(full_path):
+                try:
+                    with open(full_path, 'r', encoding='utf-8') as f:
+                        code = f.read()
+                        
+                        import re
+                        assets_match = re.search(r'TARGET_ASSETS\s*=\s*\[(.*?)\]', code)
+                        tf_match = re.search(r'TARGET_TIMEFRAMES\s*=\s*\[(.*?)\]', code)
+                        
+                        strat_target_assets = [x.strip().strip('"\'') for x in assets_match.group(1).split(',') if x.strip()] if assets_match else (target_assets or [])
+                        strat_target_timeframes = [x.strip().strip('"\'') for x in tf_match.group(1).split(',') if x.strip()] if tf_match else (target_timeframes or [])
+                        
+                        strategies[os.path.basename(clean_path)] = {
+                            "code": code,
+                            "target_assets": strat_target_assets,
+                            "target_timeframes": strat_target_timeframes
+                        }
+                except Exception as e:
+                    print(f"Помилка читання стратегії {path}: {e}")
+                    
+        if not strategies:
+            print("Немає активних стратегій для сканування.")
+            return
+
+        kwargs = {'db_path': self.db_path} if self.db_path else {'use_default': True}
+        try:
+            with DataBaseManager(**kwargs) as db:
+                tables = [t for t in db.get_all_tables() if not t.startswith('sqlite') and not t.startswith('copilot_') and not t.startswith('rules_') and not t.startswith('backtest_') and not t.startswith('temp_sim_')]
+        except Exception as e:
+            print(f"Помилка зчитування таблиць: {e}")
+            return
+            
+        print(f"Сканування {len(tables)} ринків за допомогою {len(strategies)} стратегій...")
+        
+        args_list = []
+        import pandas as pd
+        from utils.DataBaseManager import DataBaseManager
+        with DataBaseManager(self.db_path) as db:
+            for table in tables:
+                parts = table.split('_')
+                if len(parts) >= 2:
+                    table_tf = parts[-1]
+                    table_asset = "_".join(parts[:-1])
+                else:
+                    continue
+
+                df = None
+                for strat_name, strat_data in strategies.items():
+                    s_assets = strat_data["target_assets"]
+                    s_tfs = strat_data["target_timeframes"]
+                    
+                    if s_assets and table_asset not in s_assets:
+                        continue
+                    if s_tfs and table_tf not in s_tfs:
+                        continue
+                        
+                    if df is None:
+                        df = db.get_data_by_number_range(table, 1000)
+                        
+                    if isinstance(df, pd.DataFrame) and not df.empty:
+                        args_list.append((strat_data["code"], df, table, strat_name))
+                
+        n_workers = max(1, (os.cpu_count() or 4) - 1)
+        results = []
+        pool = Pool(processes=n_workers)
+        try:
+            for i, result in enumerate(pool.imap_unordered(_scan_single_market, args_list)):
+                results.append(result)
+        finally:
+            pool.close()
+            pool.join()
+                
+        import pandas as pd
+        
+        signals_found_list = []
+        warnings_found_list = []
+        signals_data = []
+        
+        for r in results:
+            if not r.get("success"): 
+                print(f"Помилка сканування {r.get('table')} -> {r.get('strategy')}: {r.get('error')}")
+                continue
+            
+            table = r["table"]
+            strat = r["strategy"]
+            direction = r.get("direction", "BUY")
+            dir_text = "🟢 BUY (Лонг)" if direction == "BUY" else "🔴 SELL (Шорт)"
+            
+            if r["signal_ready"]:
+                signals_found_list.append((table, direction, strat, dir_text))
+                signals_data.append({
+                    "timestamp": pd.Timestamp.now().isoformat(),
+                    "asset": table,
+                    "direction": direction,
+                    "strategy": strat,
+                    "status": "READY"
+                })
+                print(f"Сигнал: {table} -> {dir_text} -> {strat}")
+                    
+            elif r["signal_warning"]:
+                warnings_found_list.append((table, direction, strat, dir_text))
+                signals_data.append({
+                    "timestamp": pd.Timestamp.now().isoformat(),
+                    "asset": table,
+                    "direction": direction,
+                    "strategy": strat,
+                    "status": "WARNING_75%"
+                })
+                print(f"Попередження: {table} -> {dir_text} -> {strat}")
+
+        if signals_data:
+            try:
+                df_signals = pd.DataFrame(signals_data)
+                kwargs_db = {'db_path': self.db_path} if self.db_path else {'use_default': True}
+                with DataBaseManager(**kwargs_db) as db:
+                    db.insert_data_from_pandas_auto("copilot_signals", df_signals)
+            except Exception as e:
+                print(f"Помилка збереження сигналів в БД: {e}")
+
+        if notifier:
+            if signals_found_list or warnings_found_list:
+                msg = f"🚨 <b>Звіт Copilot: Знайдено Сигнали</b> 🚨\n\n"
+                for table, direction, strat, dir_text in signals_found_list:
+                    msg += f"✅ <b>{table}</b> -> {dir_text}\n   ⚙️ <code>{strat}</code>\n\n"
+                for table, direction, strat, dir_text in warnings_found_list:
+                    msg += f"⏳ <i>Увага: {table}</i> -> {dir_text}\n   ⚙️ <code>{strat}</code>\n\n"
+                
+                if len(msg) > 4000:
+                    msg = msg[:3950] + "\n... (список скорочено)"
+                notifier.send_message(msg.strip())
+
+            summary = (
+                f"ℹ️ <b>Звіт сканування ринків</b>\n"
+                f"📊 Перевірено ринків: {len(tables)}\n"
+                f"🧠 Використано стратегій: {len(strategies)}\n"
+                f"✅ Готових сигналів: {len(signals_found_list)}\n"
+                f"⏳ Формується (75%): {len(warnings_found_list)}"
+            )
+            notifier.send_message(summary, silent=True)
+

@@ -16,7 +16,8 @@ class TabCopilotVisual(QWidget):
     # parent: батьківський віджет
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'config', 'settings.json'))
+        from utils.PathManager import PathManager
+        self.config_path = PathManager.get_settings_path()
         self.cb_states = self._load_cb_states()
         self.init_ui()
 
@@ -86,28 +87,55 @@ class TabCopilotVisual(QWidget):
         tasks_layout = QVBoxLayout(tasks_group)
         
         self.tasks_list = QListWidget()
-        self.tasks_list.addItems([
-            "✅ Аналіз прогалин",
-            "🔄 Завантаження",
-            "⏳ Генерація x50",
-            "⏸ Тестування",
-            "⏸ Запис досвіду"
-        ])
-        self.tasks_list.setStyleSheet("background-color: transparent; border: none; color: #CDD6F4;")
+        self.tasks_list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
+        self.tasks_list.setStyleSheet("background-color: transparent; border: 1px solid #45475A; border-radius: 4px; color: #CDD6F4;")
         tasks_layout.addWidget(self.tasks_list)
         
         tasks_btns = QHBoxLayout()
         self.btn_add_task = QPushButton("+ Задачу")
-        self.btn_add_task.setStyleSheet("background-color: #45475A; padding: 5px;")
+        self.btn_add_task.setStyleSheet("""
+            QPushButton {
+                background-color: #89B4FA; 
+                color: #11111B; 
+                padding: 6px; 
+                border-radius: 4px; 
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #B4BEFE;
+            }
+        """)
         
         self.btn_start_task = QPushButton("▶ Старт")
-        self.btn_start_task.setStyleSheet("background-color: #A6E3A1; color: #11111B; padding: 5px; font-weight: bold;")
+        self.btn_start_task.setStyleSheet("""
+            QPushButton {
+                background-color: #A6E3A1; 
+                color: #11111B; 
+                padding: 6px; 
+                border-radius: 4px; 
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #94E2D5;
+            }
+        """)
         
         tasks_btns.addWidget(self.btn_add_task)
         tasks_btns.addWidget(self.btn_start_task)
         tasks_layout.addLayout(tasks_btns)
         
         left_layout.addWidget(tasks_group)
+        
+        # 1.5 Routine Queue
+        routine_group = QGroupBox("🔄 РУТИНА (АВТО)")
+        routine_group.setStyleSheet("QGroupBox { border: 1px solid #313244; border-radius: 6px; padding-top: 15px; color: #A6ADC8; font-weight: bold; }")
+        routine_layout = QVBoxLayout(routine_group)
+        self.routine_list = QListWidget()
+        self.routine_list.setStyleSheet("background-color: transparent; border: 1px solid #45475A; border-radius: 4px; color: #CDD6F4;")
+        self.routine_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self.routine_list.setFixedHeight(120)
+        routine_layout.addWidget(self.routine_list)
+        left_layout.addWidget(routine_group)
         
         # 2. Settings
         settings_group = QGroupBox("⚙️ НАЛАШТУВАННЯ")
@@ -128,6 +156,7 @@ class TabCopilotVisual(QWidget):
         for cb in [self.cb_auto_mode, self.cb_auto_gen, self.cb_download_ccxt, self.cb_download_massive, self.cb_gen_signals]:
             cb.setStyleSheet("color: #CDD6F4;")
             cb.stateChanged.connect(self.save_settings)
+            cb.stateChanged.connect(self._update_routine_ui)
             settings_layout.addWidget(cb)
             
         left_layout.addWidget(settings_group)
@@ -158,13 +187,54 @@ class TabCopilotVisual(QWidget):
         stats_inner.addStretch()
         stats_comp_layout.addWidget(stats_group)
         
-        # Top components
-        top_group = QGroupBox("🏆 ТОП-5 КОМПОНЕНТІВ")
-        top_group.setStyleSheet("QGroupBox { border: 1px solid #313244; border-radius: 6px; padding-top: 15px; color: #A6ADC8; font-weight: bold; }")
-        self.top_inner = QVBoxLayout(top_group)
-        self.top_inner.addStretch() # placeholder
+        # All components
+        comps_group = QGroupBox()
+        comps_group.setStyleSheet("QGroupBox { border: 1px solid #313244; border-radius: 6px; color: #A6ADC8; font-weight: bold; }")
+        comps_layout = QVBoxLayout(comps_group)
+        comps_layout.setContentsMargins(5, 5, 5, 5)
         
-        stats_comp_layout.addWidget(top_group)
+        # Header layout with title and button
+        comps_header = QHBoxLayout()
+        comps_title = QLabel("🏆 РЕЙТИНГ КОМПОНЕНТІВ")
+        comps_title.setStyleSheet("border: none; font-size: 13px;")
+        self.btn_expanded = QPushButton("Розширені")
+        self.btn_expanded.setCheckable(True)
+        self.btn_expanded.setStyleSheet("""
+            QPushButton {
+                background-color: #45475A; color: #CDD6F4; border-radius: 4px; padding: 2px 8px; font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #585B70;
+            }
+            QPushButton:checked {
+                background-color: #89B4FA; color: #11111B; font-weight: bold;
+            }
+            QPushButton:checked:hover {
+                background-color: #B4BEFE;
+            }
+        """)
+        comps_header.addWidget(comps_title)
+        comps_header.addStretch()
+        comps_header.addWidget(self.btn_expanded)
+        comps_layout.addLayout(comps_header)
+        
+        from PyQt6.QtWidgets import QScrollArea
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
+        
+        self.top_inner_widget = QWidget()
+        self.top_inner_widget.setStyleSheet("background-color: transparent;")
+        self.top_inner = QVBoxLayout(self.top_inner_widget)
+        self.top_inner.addStretch()
+        
+        self.scroll_area.setWidget(self.top_inner_widget)
+        comps_layout.addWidget(self.scroll_area)
+        
+        stats_comp_layout.addWidget(comps_group)
+        
+        self.btn_expanded.toggled.connect(self._render_components)
+        self.last_best_comps = {}
         
         right_layout.addLayout(stats_comp_layout)
         
@@ -185,6 +255,7 @@ class TabCopilotVisual(QWidget):
         splitter.addWidget(right_panel)
         splitter.setSizes([250, 600])
         main_layout.addWidget(splitter)
+        self._update_routine_ui()
 
     # ----------------------------------
     # _load_cb_states, завантаження станів чекбоксів
@@ -225,8 +296,57 @@ class TabCopilotVisual(QWidget):
             os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4)
+                
+            # Log specific toggles
+            if self.sender() == self.cb_gen_signals:
+                if self.cb_gen_signals.isChecked():
+                    self.log_console.append(f"[{__import__('datetime').datetime.now().strftime('%H:%M:%S')}] 🔔 Генерація сигналів активована (Тестовий режим).")
+                else:
+                    self.log_console.append(f"[{__import__('datetime').datetime.now().strftime('%H:%M:%S')}] 🔕 Генерація сигналів вимкнена.")
         except Exception as e:
             self.log_console.append(f"Помилка збереження налаштувань: {e}")
+
+    def _update_routine_ui(self):
+        is_auto = self.cb_auto_mode.isChecked()
+        
+        for cb in [self.cb_auto_gen, self.cb_download_ccxt, self.cb_download_massive, self.cb_gen_signals]:
+            cb.setEnabled(not is_auto)
+            
+        if not is_auto:
+            has_download = self.cb_download_ccxt.isChecked() or self.cb_download_massive.isChecked()
+            self.cb_gen_signals.setEnabled(has_download)
+            if not has_download and self.cb_gen_signals.isChecked():
+                self.cb_gen_signals.setChecked(False)
+                
+        self.routine_list.clear()
+        
+        if is_auto:
+            self.routine_list.addItem("1. Аналіз прогалин в БД")
+            self.routine_list.addItem("2. Завантаження даних (CCXT / Massive)")
+            self.routine_list.addItem("3. Генерація сигналів (Аналіз стратегій)")
+            self.routine_list.addItem("4. Відправка звітів у Telegram")
+            self.routine_list.addItem("5. Авто-генерація стратегій (Топ-10)")
+        else:
+            step = 1
+            has_download = self.cb_download_ccxt.isChecked() or self.cb_download_massive.isChecked()
+            if has_download:
+                self.routine_list.addItem(f"{step}. Аналіз прогалин в БД")
+                step += 1
+                self.routine_list.addItem(f"{step}. Завантаження даних (CCXT / Massive)")
+                step += 1
+                
+            if self.cb_gen_signals.isChecked():
+                self.routine_list.addItem(f"{step}. Генерація сигналів (Аналіз стратегій)")
+                step += 1
+                self.routine_list.addItem(f"{step}. Відправка звітів у Telegram")
+                step += 1
+                
+            if self.cb_auto_gen.isChecked():
+                self.routine_list.addItem(f"{step}. Авто-генерація стратегій (Топ-10)")
+                step += 1
+                
+            if step == 1:
+                self.routine_list.addItem("Рутина порожня")
 
     # ----------------------------------
     # update_stats_ui, оновлення UI статистики
@@ -247,42 +367,57 @@ class TabCopilotVisual(QWidget):
             self.lbl_profit_factor.setText(f"Profit Factor: <span style='color:{color_pf}'>{pf_avg:.2f}</span>")
             self.lbl_records.setText(f"Записів у пам'яті: <span style='color:#89B4FA'>{records}</span>")
             
-            # Очищуємо старі компоненти
-            while self.top_inner.count():
-                item = self.top_inner.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-                elif item.layout():
-                    while item.layout().count():
-                        subitem = item.layout().takeAt(0)
-                        if subitem.widget():
-                            subitem.widget().deleteLater()
-                    item.layout().deleteLater()
-            
-            if best_comps:
-                colors = ["#A6E3A1", "#89B4FA", "#F9E2AF", "#F38BA8", "#CBA6F7"]
-                for i, (comp, score) in enumerate(list(best_comps.items())[:5]):
-                    row = QHBoxLayout()
-                    lbl_name = QLabel(f"{comp:<15}")
-                    lbl_name.setStyleSheet("font-size: 12px;")
-                    row.addWidget(lbl_name)
-                    
-                    pb = QProgressBar()
-                    val = min(100, int(score * 100))
-                    pb.setValue(val)
-                    pb.setTextVisible(False)
-                    pb.setFixedHeight(8)
-                    color = colors[i % len(colors)]
-                    pb.setStyleSheet(f"QProgressBar::chunk {{ background-color: {color}; border-radius: 4px; }} QProgressBar {{ border: 1px solid #313244; background: #181825; border-radius: 4px; }}")
-                    row.addWidget(pb)
-                    
-                    lbl_score = QLabel(f"{score:.2f}")
-                    lbl_score.setStyleSheet("font-size: 12px; color: #A6ADC8;")
-                    row.addWidget(lbl_score)
-                    
-                    self.top_inner.addLayout(row)
-            self.top_inner.addStretch()
+            self.last_best_comps = best_comps
+            self._render_components()
         else:
             self.lbl_winrate.setText("Win Rate (середній): <span style='color:#CDD6F4'>--%</span>")
             self.lbl_profit_factor.setText("Profit Factor: <span style='color:#CDD6F4'>--</span>")
             self.lbl_records.setText("Записів у пам'яті: <span style='color:#CDD6F4'>0</span>")
+
+    def _render_components(self):
+        # Очищуємо старі компоненти
+        while self.top_inner.count():
+            item = self.top_inner.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                while item.layout().count():
+                    subitem = item.layout().takeAt(0)
+                    if subitem.widget():
+                        subitem.widget().deleteLater()
+                item.layout().deleteLater()
+        
+        comps_to_render = {}
+        if self.btn_expanded.isChecked():
+            comps_to_render = self.last_best_comps
+        else:
+            import re
+            for comp, score in self.last_best_comps.items():
+                base_name = re.sub(r'_[0-9]+(?:_[0-9]+)*$', '', comp)
+                if base_name not in comps_to_render or score > comps_to_render[base_name]:
+                    comps_to_render[base_name] = score
+            comps_to_render = dict(sorted(comps_to_render.items(), key=lambda x: x[1], reverse=True))
+
+        if comps_to_render:
+            colors = ["#A6E3A1", "#89B4FA", "#F9E2AF", "#F38BA8", "#CBA6F7"]
+            for i, (comp, score) in enumerate(comps_to_render.items()):
+                row = QHBoxLayout()
+                lbl_name = QLabel(f"{comp:<15}")
+                lbl_name.setStyleSheet("font-size: 12px;")
+                row.addWidget(lbl_name)
+                
+                pb = QProgressBar()
+                val = min(100, int(score * 100))
+                pb.setValue(val)
+                pb.setTextVisible(False)
+                pb.setFixedHeight(8)
+                color = colors[i % len(colors)]
+                pb.setStyleSheet(f"QProgressBar::chunk {{ background-color: {color}; border-radius: 4px; }} QProgressBar {{ border: 1px solid #313244; background: #181825; border-radius: 4px; }}")
+                row.addWidget(pb)
+                
+                lbl_score = QLabel(f"{score:.2f}")
+                lbl_score.setStyleSheet("font-size: 12px; color: #A6ADC8;")
+                row.addWidget(lbl_score)
+                
+                self.top_inner.addLayout(row)
+        self.top_inner.addStretch()

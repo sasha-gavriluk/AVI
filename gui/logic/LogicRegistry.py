@@ -3,7 +3,6 @@ from gui.logic.ExplorerLogic import ExplorerLogic
 from gui.logic.DownloaderLogic import DownloaderLogic
 from gui.logic.ChartLogic import ChartLogic
 from gui.logic.BacktestLogic import BacktestLogic
-from gui.logic.LiveTradingLogic import LiveTradingLogic
 from gui.logic.CopilotLogic import CopilotLogic
 
 #==================================
@@ -22,4 +21,3 @@ class LogicRegistry:
         self.downloader = DownloaderLogic()
         self.chart = ChartLogic()
         self.backtest = BacktestLogic(self.copilot)
-        self.live_trading = LiveTradingLogic(self.copilot)

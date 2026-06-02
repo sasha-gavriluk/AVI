@@ -44,6 +44,7 @@ class TradingService(QObject):
         from utils.DataBaseManager import DataBaseManager
         from utils.Trading.MassiveModule import MassiveModule
         from utils.rules_engine import IndicatorRegistry
+        from utils.PathManager import PathManager
         import json
         import datetime
         
@@ -51,7 +52,7 @@ class TradingService(QObject):
         # TODO: Завантаження ключів налаштувань
         api_key = "DEMO_KEY" 
         try:
-            with open("data/config/settings.json", "r") as f:
+            with open(PathManager.get_settings_path(), "r") as f:
                 settings = json.load(f)
                 api_key = settings.get("binance_api_key", api_key)
         except:

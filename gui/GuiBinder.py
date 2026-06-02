@@ -18,7 +18,6 @@ class GuiBinder:
         self.l = logic
         self.is_db_locked_callback = None
         self.switch_to_downloader_callback = None
-        self.bind_all()
 
     # ----------------------------------
     # bind_all, виклик всіх методів зв'язування
@@ -31,7 +30,6 @@ class GuiBinder:
         self._bind_chart()
         self._bind_backtest()
         self._bind_copilot()
-        self._bind_live_trading()
         
     # ----------------------------------
     # _bind_explorer, зв'язування вкладки провідника
@@ -196,7 +194,21 @@ class GuiBinder:
         
         tab.half_life_input.setValue(data["copilot"]["half_life_days"])
         tab.min_score_input.setValue(data["copilot"]["min_score_for_best"])
-        tab.routine_interval_input.setValue(data["copilot"].get("routine_interval_hours", 1.0))
+        tab.routine_interval_input.setValue(data["copilot"].get("routine_interval_minutes", 60))
+        tab.update_threshold_input.setValue(data["copilot"].get("update_threshold_weight", 15.0))
+        tab.target_assets_input.setText(", ".join(data["copilot"].get("target_assets", [])))
+        tab.target_timeframes_input.setText(", ".join(data["copilot"].get("target_timeframes", [])))
+        
+        tab.active_strategies_list.clear()
+        tab.active_strategies_list.addItems(data["copilot"].get("active_strategies", []))
+        
+        tab.massive_free_tier_cb.setChecked(data.get("downloader", {}).get("massive_free_tier", True))
+        tab.massive_requests_input.setValue(data.get("downloader", {}).get("massive_free_requests", 5))
+        tab.massive_wait_input.setValue(data.get("downloader", {}).get("massive_free_wait_minutes", 3))
+        # Ініціалізація активності полів
+        tab.massive_requests_input.setEnabled(tab.massive_free_tier_cb.isChecked())
+        tab.massive_wait_input.setEnabled(tab.massive_free_tier_cb.isChecked())
+        tab.cb_telegram_enabled.setChecked(data.get("notifications", {}).get("telegram_enabled", False))
         
         keys = logic.load_api_keys()
         tab.bybit_key_input.setText(keys.get("BYBIT_KEY", ""))
@@ -204,6 +216,28 @@ class GuiBinder:
         tab.binance_key_input.setText(keys.get("BINANCE_KEY", ""))
         tab.binance_secret_input.setText(keys.get("BINANCE_SECRET_KEY", ""))
         tab.massive_key_input.setText(keys.get("MASSIVE_KEY", ""))
+        tab.telegram_token_input.setText(keys.get("TELEGRAM_BOT_TOKEN", ""))
+        tab.telegram_chat_id_input.setText(keys.get("TELEGRAM_CHAT_ID", ""))
+        
+        def refresh_settings_assets():
+            try:
+                raw_assets = self.l.chart.get_available_assets()
+                unique_assets = set()
+                for db, tbl in raw_assets:
+                    if tbl.startswith("copilot") or tbl.startswith("temp") or tbl.startswith("rules") or tbl.startswith("sqlite") or tbl.startswith("backtest"):
+                        continue
+                    parts = tbl.split('_')
+                    if len(parts) >= 2:
+                        asset_raw = "_".join(parts[:-1])
+                    else:
+                        asset_raw = tbl
+                    unique_assets.add(asset_raw)
+                tab.update_asset_presets(sorted(list(unique_assets))[:12])
+            except Exception as e:
+                print(f"Помилка завантаження пресетів активів: {e}")
+                
+        tab.refresh_settings_assets = refresh_settings_assets
+        tab.refresh_settings_assets()
 
         # ----------------------------------
         # save_from_ui, локальна функція для збору даних і збереження
@@ -225,7 +259,19 @@ class GuiBinder:
                 "copilot": {
                     "half_life_days": tab.half_life_input.value(),
                     "min_score_for_best": tab.min_score_input.value(),
-                    "routine_interval_hours": tab.routine_interval_input.value()
+                    "routine_interval_minutes": tab.routine_interval_input.value(),
+                    "update_threshold_weight": tab.update_threshold_input.value(),
+                    "target_assets": [s.strip() for s in tab.target_assets_input.text().split(',') if s.strip()],
+                    "target_timeframes": [s.strip() for s in tab.target_timeframes_input.text().split(',') if s.strip()],
+                    "active_strategies": [tab.active_strategies_list.item(i).text() for i in range(tab.active_strategies_list.count())]
+                },
+                "downloader": {
+                    "massive_free_tier": tab.massive_free_tier_cb.isChecked(),
+                    "massive_free_requests": tab.massive_requests_input.value(),
+                    "massive_free_wait_minutes": tab.massive_wait_input.value()
+                },
+                "notifications": {
+                    "telegram_enabled": tab.cb_telegram_enabled.isChecked()
                 }
             }
             logic.save_settings(new_data)
@@ -235,7 +281,9 @@ class GuiBinder:
                 "BYBIT_SECRET_KEY": tab.bybit_secret_input.text(),
                 "BINANCE_KEY": tab.binance_key_input.text(),
                 "BINANCE_SECRET_KEY": tab.binance_secret_input.text(),
-                "MASSIVE_KEY": tab.massive_key_input.text()
+                "MASSIVE_KEY": tab.massive_key_input.text(),
+                "TELEGRAM_BOT_TOKEN": tab.telegram_token_input.text(),
+                "TELEGRAM_CHAT_ID": tab.telegram_chat_id_input.text()
             }
             logic.save_api_keys(new_keys)
 
@@ -249,11 +297,57 @@ class GuiBinder:
         tab.half_life_input.valueChanged.connect(save_from_ui)
         tab.min_score_input.valueChanged.connect(save_from_ui)
         tab.routine_interval_input.valueChanged.connect(save_from_ui)
+        tab.update_threshold_input.valueChanged.connect(save_from_ui)
+        tab.target_assets_input.textChanged.connect(save_from_ui)
+        tab.target_timeframes_input.textChanged.connect(save_from_ui)
+        tab.massive_free_tier_cb.stateChanged.connect(save_from_ui)
+        tab.massive_requests_input.valueChanged.connect(save_from_ui)
+        tab.massive_wait_input.valueChanged.connect(save_from_ui)
         tab.bybit_key_input.textChanged.connect(save_from_ui)
         tab.bybit_secret_input.textChanged.connect(save_from_ui)
         tab.binance_key_input.textChanged.connect(save_from_ui)
         tab.binance_secret_input.textChanged.connect(save_from_ui)
         tab.massive_key_input.textChanged.connect(save_from_ui)
+        tab.cb_telegram_enabled.stateChanged.connect(save_from_ui)
+        tab.telegram_token_input.textChanged.connect(save_from_ui)
+        tab.telegram_chat_id_input.textChanged.connect(save_from_ui)
+        
+        def test_telegram():
+            save_from_ui()
+            from core.services.notification_service import TelegramNotifier
+            notifier = TelegramNotifier()
+            from PyQt6.QtWidgets import QMessageBox
+            if notifier.send_message("✅ Це тестове повідомлення з платформи AVI!"):
+                QMessageBox.information(tab, "Успіх", "Тестове повідомлення успішно надіслано в Telegram!")
+            else:
+                QMessageBox.warning(tab, "Помилка", "Не вдалося надіслати повідомлення. Перевірте токен та Chat ID.")
+                
+        tab.btn_test_telegram.clicked.connect(test_telegram)
+        tab.btn_instruction.clicked.connect(tab.show_telegram_instruction)
+        
+        def add_strategy():
+            from PyQt6.QtWidgets import QFileDialog
+            import os
+            from utils.PathManager import PathManager
+            
+            start_dir = PathManager.get_strategies_dir()
+            os.makedirs(start_dir, exist_ok=True)
+            files, _ = QFileDialog.getOpenFileNames(tab, "Оберіть стратегії", start_dir, "Python Files (*.py)")
+            if files:
+                for f in files:
+                    rel = os.path.relpath(f, PathManager.get_user_data_dir())
+                    items = [tab.active_strategies_list.item(i).text() for i in range(tab.active_strategies_list.count())]
+                    if rel not in items:
+                        tab.active_strategies_list.addItem(rel)
+                save_from_ui()
+                
+        def remove_strategy():
+            for item in tab.active_strategies_list.selectedItems():
+                tab.active_strategies_list.takeItem(tab.active_strategies_list.row(item))
+            save_from_ui()
+            
+        tab.btn_add_strategy.clicked.connect(add_strategy)
+        tab.btn_remove_strategy.clicked.connect(remove_strategy)
 
     # ----------------------------------
     # _bind_downloader, зв'язування завантажувача
@@ -315,8 +409,12 @@ class GuiBinder:
         def on_source_changed():
             is_massive = tab.radio_massive.isChecked()
             tab.exchange_group.setEnabled(not is_massive)
-            if is_massive: tab.symbols_input.setText("EURUSD, GBPUSD")
-            else: tab.symbols_input.setText("BTCUSDT, ETHUSDT")
+            if is_massive:
+                tab.symbols_input.setText("EURUSD, GBPUSD")
+                tab.exchange_group.setTitle("Вибір Біржі 🔒 (Недоступно для Massive)")
+            else:
+                tab.symbols_input.setText("BTCUSDT, ETHUSDT")
+                tab.exchange_group.setTitle("Вибір Біржі")
             update_symbol_presets()
 
         tab.radio_massive.toggled.connect(on_source_changed)
@@ -353,6 +451,11 @@ class GuiBinder:
             tab.card_status.value_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #A6E3A1;")
             tab.log_console.append("<br/><span style='color: #A6E3A1; font-weight: bold;'>🎉 ЗАВАНТАЖЕННЯ УСПІШНЕ!</span>")
             reset_start_btn()
+            
+            if hasattr(self.v.settings_tab, 'refresh_settings_assets'):
+                self.v.settings_tab.refresh_settings_assets()
+            if hasattr(self.v.chart_tab, 'refresh_menus'):
+                self.v.chart_tab.refresh_menus()
 
         def on_error(err):
             tab.card_status.value_label.setText("ERROR (Помилка)")
@@ -382,7 +485,7 @@ class GuiBinder:
             tab.log_console.clear()
             tab.progress_bar.setValue(0)
             tab.card_candles.value_label.setText("0")
-            db_name = "trading_data_massive.duckdb" if source == "massive" else f"{exchange.lower()}_data.duckdb"
+            db_name = "main.duckdb"
             tab.card_db.value_label.setText(db_name)
             tab.card_status.value_label.setText("ACTIVE (Завантаження)")
             tab.card_status.value_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #A6E3A1;")
@@ -390,13 +493,29 @@ class GuiBinder:
             tab.btn_start.setText("🛑 ЗУПИНИТИ")
             tab.btn_start.setStyleSheet("QPushButton { background-color: #F38BA8; color: #11111B; font-size: 14px; font-weight: bold; padding: 12px; border-radius: 6px; margin-top: 15px; }")
 
-            s = {"source_type": source, "exchange": exchange, "symbols": symbols, "timeframes": tfs, "start_ms": start_ms, "end_ms": end_ms}
+            downloader_settings = self.l.settings.load_settings().get("downloader", {})
+            massive_free_tier = downloader_settings.get("massive_free_tier", True)
+            massive_free_requests = downloader_settings.get("massive_free_requests", 5)
+            massive_free_wait_minutes = downloader_settings.get("massive_free_wait_minutes", 3)
+            
+            s = {
+                "source_type": source, 
+                "exchange": exchange, 
+                "symbols": symbols, 
+                "timeframes": tfs, 
+                "start_ms": start_ms, 
+                "end_ms": end_ms, 
+                "massive_free_tier": massive_free_tier,
+                "massive_free_requests": massive_free_requests,
+                "massive_free_wait_minutes": massive_free_wait_minutes
+            }
             worker = logic.start_download(s)
             worker.log_message.connect(on_log_message)
             worker.progress_update.connect(on_progress)
             worker.candles_updated.connect(on_candles)
             worker.finished_ok.connect(on_finished_ok)
             worker.finished_error.connect(on_error)
+            worker.start()
 
         tab.btn_start.clicked.connect(start_downloading)
 
@@ -407,20 +526,35 @@ class GuiBinder:
     def _bind_chart(self):
         tab = self.v.chart_tab
         logic = self.l.chart
+        self.initializing_chart = False
+        self.locked_zoom_width = 210
         
         from PyQt6.QtGui import QAction
         import pandas as pd
         import os
         
         def load_chart(db_path, table_name):
-            if tab.ax is not None:
-                tab.ax.clear()
+            if hasattr(tab, 'chart') and tab.chart is not None:
+                tab.chart.clear_markers()
+            self.initializing_chart = True
             logic.request_initial_data_async(db_path, table_name)
             
+        def on_reset_cam(sync=False):
+            if hasattr(tab, 'chart') and tab.chart is not None:
+                tab.chart.plot_item.autoBtnClicked()
+
         def on_chart_loaded(success):
             if success:
                 tab.setup_chart(logic.df)
                 update_trades_menu()
+                
+                # Підключаємо підгрузку свічок
+                if hasattr(tab, 'chart') and tab.chart is not None:
+                    tab.chart.request_more_data.connect(logic.request_more_data_async)
+                    
+                on_reset_cam(sync=False)
+                # Safely reset initializing flag
+                setattr(self, 'initializing_chart', False)
                 
         logic.chart_loaded.connect(on_chart_loaded)
                 
@@ -441,45 +575,74 @@ class GuiBinder:
         def show_trades(trades_table):
             if not logic.load_trades(trades_table):
                 return
-            
+
+            import pandas as pd
             entries = pd.Series(index=logic.df.index, dtype=float)
             exits = pd.Series(index=logic.df.index, dtype=float)
+            
+            trades_list = []
+            
             for _, trade in logic.trades_df.iterrows():
                 try:
+                    # parse entry safely
+                    if pd.isna(trade.get('EntryTimestamp')): continue
                     entry_time = pd.to_datetime(trade['EntryTimestamp'], unit='ms')
-                    exit_time = pd.to_datetime(trade['ExitTimestamp'], unit='ms')
+                    
+                    # parse exit safely
+                    exit_time_val = trade.get('ExitTimestamp')
+                    exit_time = pd.to_datetime(exit_time_val, unit='ms') if pd.notna(exit_time_val) and exit_time_val > 0 else pd.NaT
+                    
+                    # calculate duration
+                    dur = 0
+                    if pd.notna(exit_time_val) and exit_time_val > 0:
+                        dur = exit_time_val - trade.get('EntryTimestamp', 0)
+                        
+                    t_dict = {
+                        'entry_time': entry_time.strftime("%Y-%m-%d %H:%M:%S"),
+                        'type': str(trade.get('TradeType', '')).upper(),
+                        'status': 'CLOSED' if pd.notna(exit_time) else 'OPEN',
+                        'pnl': float(trade.get('Profit', 0.0)) if pd.notna(trade.get('Profit')) else 0.0,
+                        'id': str(trade.get('TradeNumber', '')),
+                        'duration': str(dur)
+                    }
+                    trades_list.append(t_dict)
+                    
                     if entry_time in logic.df.index:
                         high = logic.df.loc[entry_time, 'high']
                         entries.loc[entry_time] = high + (high * 0.0005)
-                    if exit_time in logic.df.index:
+                    if pd.notna(exit_time) and exit_time in logic.df.index:
                         low = logic.df.loc[exit_time, 'low']
                         exits.loc[exit_time] = low - (low * 0.0005)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"Skipped trade: {e}")
             tab.draw_trades(entries, exits)
             
+            tab.sim_panel.update_trades(trades_list)
+            tab.right_panel.show()
+            tab.sim_panel.show()
+            tab.detail_panel.hide()
+            
         def on_x_range_changed(vb, xrange):
-            if xrange[0] < 100 and not logic.is_loading:
-                logic.request_more_data_async()
+            pass # Panning is handled natively by Lightweight Charts
                 
         def on_more_loaded(added):
             if added > 0:
-                tab.update_chart_data(logic.df, added)
+                tab.update_chart_data(logic.df, added, logic.is_simulating)
                 if tab.trades_drawn:
                     show_trades(logic.current_trades_table)
+                # Ми більше не скидаємо камеру жорстко, бо update_chart_data тепер
+                # плавно рухає камеру на added_count з підлаштуванням по Y.
                     
         logic.chart_more_loaded.connect(on_more_loaded)
                         
-        def on_chart_clicked(event):
-            if event.button() != 1: return
+        def on_chart_clicked(time_str):
             if logic.trades_df is None or logic.df is None: return
+            if not time_str: return
             
-            pos = event.scenePos()
-            view_coords = tab.ax.vb.mapSceneToView(pos)
-            x_idx = int(round(view_coords.x()))
-            
-            if x_idx < 0 or x_idx >= len(logic.df): return
-            click_time = logic.df.index[x_idx]
+            try:
+                click_time = pd.to_datetime(time_str)
+            except:
+                return
             
             trade = logic.find_nearest_trade(click_time)
             if trade is not None:
@@ -495,32 +658,174 @@ class GuiBinder:
             else:
                 tab.detail_panel.hide()
                 
-        def on_reset_cam():
-            if tab.ax and logic.df is not None and not logic.df.empty:
-                import finplot as fplt
-                def _do_reset():
-                    x_max = len(logic.df) - 1
-                    x_min = max(0, x_max - 150)
-                    visible = logic.df.iloc[x_min : x_max+1]
-                    y_min = visible['low'].min()
-                    y_max = visible['high'].max()
-                    pad = (y_max - y_min) * 0.1
-                    tab.ax.vb.setXRange(x_min, x_max + 10, padding=0)
-                    tab.ax.vb.setYRange(y_min - pad, y_max + pad, padding=0)
-                fplt.timer_callback(_do_reset, 0.1, single_shot=True)
-                
         tab.x_range_changed.connect(on_x_range_changed)
         tab.chart_clicked.connect(on_chart_clicked)
-        tab.reset_camera_requested.connect(on_reset_cam)
         
-        assets = logic.get_available_assets()
-        for db, t in assets:
-            act = QAction(f"{t} ({os.path.basename(db)})", tab)
-            act.triggered.connect(lambda checked, d=db, tbl=t: load_chart(d, tbl))
-            tab.asset_menu.addAction(act)
+        def on_trade_selected_from_table(trade_dict):
+            tab.detail_panel.lbl_id.setText(f"ID: {trade_dict.get('id', '-')}")
+            tab.detail_panel.lbl_dir.setText(f"Напрям: {trade_dict.get('type', '-')}")
+            tab.detail_panel.lbl_profit.setText(f"Прибуток: {trade_dict.get('pnl', 0.0):.4f}")
+            color = "#A6E3A1" if float(trade_dict.get('pnl', 0.0)) > 0 else "#F38BA8"
+            tab.detail_panel.lbl_profit.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {color};")
+            tab.detail_panel.lbl_duration.setText(f"Статус: {trade_dict.get('status', '-')}")
+            tab.detail_panel.show()
+            tab.right_panel.show()
             
-        if assets:
-            load_chart(assets[0][0], assets[0][1])
+            # center chart
+            if hasattr(tab.chart, 'go_to_time'):
+                tab.chart.go_to_time(trade_dict.get('entry_time'))
+
+        tab.sim_panel.trade_selected.connect(on_trade_selected_from_table)
+
+        def on_lock_cam_toggled(checked):
+            pass # Handled internally if needed
+                
+        tab.lock_cam_action.toggled.connect(on_lock_cam_toggled)
+
+        def on_appearance_settings():
+            from gui.visual.TabChartVisual import AppearanceSettingsDialog
+            current_config = {
+                'up_color': getattr(tab.chart, 'up_color', '#26a69a'),
+                'down_color': getattr(tab.chart, 'down_color', '#ef5350'),
+                'bg_color': getattr(tab.chart, 'bg_color', '#1e1f22'),
+                'grid_color': getattr(tab.chart, 'grid_color', '#404040')
+            }
+            dialog = AppearanceSettingsDialog(current_config, tab)
+            if dialog.exec():
+                if hasattr(tab, 'chart') and tab.chart is not None:
+                    tab.chart.apply_settings(dialog.config)
+                    
+        tab.appearance_action.triggered.connect(on_appearance_settings)
+        
+        from gui.visual.TabChartVisual import SimulationSettingsDialog
+        tab.sim_dialog = SimulationSettingsDialog(tab)
+        
+        def on_clear_tests_clicked():
+            count = logic.clear_temp_sim_tables()
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(tab, "Очищення завершено", f"Успішно видалено {count} тимчасових таблиць тестів з бази даних.")
+            
+        tab.sim_dialog.btn_clear_tests.clicked.connect(on_clear_tests_clicked)
+        
+        def on_sim_settings():
+            tab.sim_dialog.exec()
+            
+        def on_sim_toggle():
+            if logic.is_simulating:
+                logic.stop_simulation()
+                tab.sim_toggle_action.setText("▶ Запустити симуляцію")
+                tab.right_panel.hide()
+                tab.sim_panel.hide()
+            else:
+                db_path = None
+                table_name = None
+                if tab._current_asset_nice and tab._current_tf:
+                    db_path, table_name = tab.grouped_assets[tab._current_asset_nice][tab._current_tf]
+
+                if db_path and table_name:
+                    settings = tab.sim_dialog.get_settings()
+                    strat_name = settings.get("strategy")
+                    
+                    success = logic.start_simulation(db_path, table_name, settings["range"], settings["multiplier"], strat_name)
+                    if success:
+                        tab.sim_toggle_action.setText("🛑 Зупинити симуляцію")
+                        if strat_name and strat_name != "Без стратегії":
+                            tab.right_panel.show()
+                            tab.sim_panel.show()
+                            tab.detail_panel.hide()
+
+        tab.sim_settings_action.triggered.connect(on_sim_settings)
+        tab.sim_toggle_action.triggered.connect(on_sim_toggle)
+        
+        logic.sim_trades_updated.connect(tab.sim_panel.update_trades)
+        
+        import pandas as pd
+        def on_sim_trade_event(event_type, timestamp, trade_type):
+            dt = pd.to_datetime(timestamp)
+            time_str = dt.strftime("%Y-%m-%d %H:%M")
+            if event_type == "OPEN":
+                color = 'green' if trade_type == 'BUY' else 'red'
+                shape = 'arrowUp' if trade_type == 'BUY' else 'arrowDown'
+                tab.chart.add_marker(time_str, 'bottom' if trade_type=='BUY' else 'top', color, shape, 'ВХІД')
+            else:
+                color = 'purple'
+                shape = 'circle'
+                tab.chart.add_marker(time_str, 'top' if trade_type=='BUY' else 'bottom', color, shape, 'ВИХІД')
+                
+        logic.sim_trade_event.connect(on_sim_trade_event)
+        
+        def refresh_menus():
+            tab.asset_menu.clear()
+            tab.tf_menu.clear()
+            
+            assets = logic.get_available_assets()
+            grouped_assets = {}
+            for db, t in assets:
+                parts = t.split('_')
+                if len(parts) >= 2:
+                    tf = parts[-1]
+                    asset_raw = "_".join(parts[:-1])
+                else:
+                    tf = "1m"
+                    asset_raw = t
+                    
+                if "_" in asset_raw:
+                    asset_nice = asset_raw.replace("_", "/")
+                else:
+                    if len(asset_raw) == 6:
+                        asset_nice = f"{asset_raw[:3]}/{asset_raw[3:]}"
+                    else:
+                        asset_nice = asset_raw
+                        
+                if asset_nice not in grouped_assets:
+                    grouped_assets[asset_nice] = {}
+                grouped_assets[asset_nice][tf] = (db, t)
+                
+            tab._current_asset_nice = None
+            tab._current_tf = None
+            
+            def select_tf(tf):
+                if not tab._current_asset_nice: return
+                tab._current_tf = tf
+                db, tbl = grouped_assets[tab._current_asset_nice][tf]
+                load_chart(db, tbl)
+                
+                tab.tf_menu.clear()
+                for available_tf in sorted(grouped_assets[tab._current_asset_nice].keys()):
+                    act = QAction(available_tf, tab)
+                    act.setCheckable(True)
+                    act.setChecked(available_tf == tf)
+                    act.triggered.connect(lambda checked, t=available_tf: select_tf(t))
+                    tab.tf_menu.addAction(act)
+                    
+                for act in tab.asset_menu.actions():
+                    act.setChecked(act.text() == tab._current_asset_nice)
+            
+            def select_asset(asset_nice):
+                tab._current_asset_nice = asset_nice
+                tfs = grouped_assets[asset_nice]
+                if "15m" in tfs:
+                    pref_tf = "15m"
+                elif "1m" in tfs:
+                    pref_tf = "1m"
+                else:
+                    pref_tf = list(tfs.keys())[0]
+                select_tf(pref_tf)
+                
+            tab.grouped_assets = grouped_assets
+            
+            for asset_nice in sorted(grouped_assets.keys()):
+                act = QAction(asset_nice, tab)
+                act.setCheckable(True)
+                act.triggered.connect(lambda checked, a=asset_nice: select_asset(a))
+                tab.asset_menu.addAction(act)
+                
+            if grouped_assets:
+                first_asset = sorted(grouped_assets.keys())[0]
+                select_asset(first_asset)
+                
+        tab.refresh_menus = refresh_menus
+        tab.refresh_menus()
 
     # ----------------------------------
     # _bind_backtest, зв'язування бектесту
@@ -547,11 +852,67 @@ class GuiBinder:
                 elif hasattr(w, 'textChanged'): w.textChanged.connect(lambda text: tab.update_editor_code(logic.copilot))
 
         # Завантаження таблиць
-        tables = logic.get_tables()
-        tab.table_combo.addItems(tables)
+        def refresh_backtest_menus():
+            tab.table_combo.blockSignals(True)
+            tab.table_combo.clear()
+            tab.timeframe_combo.clear()
+            
+            assets = self.l.chart.get_available_assets()
+            grouped_assets = {}
+            for db, t in assets:
+                parts = t.split('_')
+                if len(parts) >= 2:
+                    tf = parts[-1]
+                    asset_raw = "_".join(parts[:-1])
+                else:
+                    tf = "1m"
+                    asset_raw = t
+                    
+                if "_" in asset_raw:
+                    asset_nice = asset_raw.replace("_", "/")
+                else:
+                    if len(asset_raw) == 6:
+                        asset_nice = f"{asset_raw[:3]}/{asset_raw[3:]}"
+                    else:
+                        asset_nice = asset_raw
+                        
+                if asset_nice not in grouped_assets:
+                    grouped_assets[asset_nice] = {}
+                grouped_assets[asset_nice][tf] = t
+                
+            tab._backtest_grouped = grouped_assets
+            
+            for asset_nice in sorted(grouped_assets.keys()):
+                tab.table_combo.addItem(asset_nice)
+            tab.table_combo.blockSignals(False)
+            on_asset_changed()
+                
+        def on_asset_changed():
+            asset_nice = tab.table_combo.currentText()
+            if not asset_nice or not hasattr(tab, '_backtest_grouped') or asset_nice not in tab._backtest_grouped:
+                return
+            
+            tab.timeframe_combo.blockSignals(True)
+            tab.timeframe_combo.clear()
+            tfs = tab._backtest_grouped[asset_nice]
+            for tf in sorted(tfs.keys()):
+                tab.timeframe_combo.addItem(tf)
+                
+            if "15m" in tfs:
+                tab.timeframe_combo.setCurrentText("15m")
+            elif "1m" in tfs:
+                tab.timeframe_combo.setCurrentText("1m")
+            
+            tab.timeframe_combo.blockSignals(False)
+
+        tab.table_combo.currentTextChanged.connect(on_asset_changed)
+        tab.refresh_menus = refresh_backtest_menus
+        tab.refresh_menus()
         
-        tab.btn_save.clicked.connect(lambda: tab.save_strategy(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'strategies')))
-        tab.btn_load.clicked.connect(lambda: tab.load_strategy(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'strategies'), logic.copilot))
+        from utils.PathManager import PathManager
+        strat_dir = PathManager.get_strategies_dir()
+        tab.btn_save.clicked.connect(lambda: tab.save_strategy(strat_dir))
+        tab.btn_load.clicked.connect(lambda: tab.load_strategy(strat_dir, logic.copilot))
         tab.btn_info.clicked.connect(tab.show_help_dialog)
         
         def run_backtest():
@@ -559,10 +920,12 @@ class GuiBinder:
             tab.safe_append_html("<div style='font-family: monospace; font-size: 13px; line-height: 1.4; margin-bottom: 10px;'><p style='color: #0a84ff; font-weight: bold; margin-bottom: 5px;'>🚀 ЗАПУСК БЕКТЕСТУ</p><hr style='border: 0; border-top: 1px solid #444; margin-top: 2px; margin-bottom: 8px;'/></div>")
             
             db_name = "main.duckdb"
-            table_name = tab.table_combo.currentText()
-            if not table_name:
+            asset_nice = tab.table_combo.currentText()
+            tf = tab.timeframe_combo.currentText()
+            if not asset_nice or not tf or not hasattr(tab, '_backtest_grouped'):
                 tab.safe_append_html("<div style='color: #ff453a; font-family: monospace; font-weight: bold;'>❗ Оберіть Актив!</div><br>")
                 return
+            table_name = tab._backtest_grouped[asset_nice][tf]
                 
             code = tab.code_editor.toPlainText()
             if "strategy = Strategy(" not in code:
@@ -581,7 +944,7 @@ class GuiBinder:
             
             tab.safe_append_html(f"<div style='font-family: monospace; font-size: 13px; color: #e5e5ea;'><span style='color: #30d158; font-weight: bold;'>{db_name}</span> | <span style='color: #64d2ff; font-weight: bold;'>{table_name}</span> | <span style='color: #ffd60a; font-weight: bold;'>{test_name}</span></div>")
             
-            tab._worker = BacktestWorker(code, "main.duckdb", table_name, test_name, copilot=logic.copilot)
+            tab._worker = BacktestWorker(code, "main.duckdb", table_name, test_name, copilot=logic.copilot, parent=tab)
             tab._worker.log_message.connect(lambda m: tab.safe_append_html(f"<div style='color: #e5e5ea; font-family: monospace; font-size: 13px;'>{m}</div><br>"))
             tab._worker.finished_ok.connect(lambda t: on_backtest_done(t, tab._worker.prediction_context))
             tab._worker.finished_error.connect(lambda e: on_backtest_error(e))
@@ -629,7 +992,9 @@ class GuiBinder:
                 tab.btn_auto_learn.setEnabled(False)
                 return
                 
-            table_name = tab.table_combo.currentText()
+            asset_nice = tab.table_combo.currentText()
+            tf = tab.timeframe_combo.currentText()
+            table_name = tab._backtest_grouped[asset_nice][tf]
             if not table_name: return
             
             tab.log_output.clear()
@@ -641,7 +1006,7 @@ class GuiBinder:
             if "BUY" in tab.ai_direction_combo.currentText(): direction = "BUY"
             elif "SELL" in tab.ai_direction_combo.currentText(): direction = "SELL"
             
-            tab._auto_worker = AutoLearnWorker("main.duckdb", table_name, logic.meta_data, total_runs=count, direction_mode=direction)
+            tab._auto_worker = AutoLearnWorker("main.duckdb", table_name, logic.meta_data, total_runs=count, direction_mode=direction, parent=tab)
             tab._auto_worker.log_message.connect(lambda m: tab.safe_append_html(f"<div style='color: #e5e5ea; font-family: monospace; font-size: 13px;'>{m}</div><br>"))
             
             def on_finished():
@@ -660,14 +1025,16 @@ class GuiBinder:
             tab.log_output.clear()
             code = tab.code_editor.toPlainText()
             if "strategy = Strategy(" not in code: return
-            table_name = tab.table_combo.currentText()
+            asset_nice = tab.table_combo.currentText()
+            tf = tab.timeframe_combo.currentText()
+            table_name = tab._backtest_grouped[asset_nice][tf]
             if not table_name: return
             
             tab.safe_append_html(f"<div style='color: #A6ADC8; font-family: monospace; font-weight: bold;'>🔄 Запуск WFV для {table_name}...</div><br>")
             tab.btn_run_wfv.setEnabled(False)
             tab.btn_run.setEnabled(False)
             
-            tab._wfv_worker = WfvWorker(code, "main.duckdb", table_name)
+            tab._wfv_worker = WfvWorker(code, "main.duckdb", table_name, parent=tab)
             tab._wfv_worker.log_message.connect(lambda m: tab.safe_append_html(m))
             
             def on_finished():
@@ -680,36 +1047,6 @@ class GuiBinder:
         tab.btn_run_wfv.clicked.connect(on_wfv_clicked)
 
     # ----------------------------------
-    # _bind_live_trading, зв'язування лайв торгівлі
-    # ----------------------------------
-    def _bind_live_trading(self):
-        tab = self.v.live_trading_tab
-        logic = self.l.live_trading
-        
-        logic.service.log_update.connect(
-            lambda text: tab.log_console.append(
-                f"[{__import__('datetime').datetime.now().strftime('%H:%M:%S')}] {text}"
-            )
-        )
-        
-        def on_start():
-            tab.btn_start.setEnabled(False)
-            tab.btn_stop.setEnabled(True)
-            
-            mode = "signal"
-            if tab.rb_demo.isChecked(): mode = "demo"
-            elif tab.rb_paper.isChecked(): mode = "paper"
-            elif tab.rb_real.isChecked(): mode = "real"
-                
-            logic.start_trading(mode)
-            
-        def on_stop():
-            tab.btn_start.setEnabled(True)
-            tab.btn_stop.setEnabled(False)
-            logic.stop_trading()
-            
-        tab.btn_start.clicked.connect(on_start)
-        tab.btn_stop.clicked.connect(on_stop)
 
     # ----------------------------------
     # _bind_copilot, зв'язування вкладки Copilot
@@ -727,9 +1064,13 @@ class GuiBinder:
             tab.btn_active.setStyleSheet("QPushButton { font-size: 14px; font-weight: bold; color: #11111B; background-color: #F9E2AF; border-radius: 6px; padding: 8px 16px; }")
             tab.btn_active.setText("⏳ RUNNING")
             
-            use_ccxt = tab.cb_download_ccxt.isChecked()
-            use_massive = tab.cb_download_massive.isChecked()
-            auto_gen = tab.cb_auto_gen.isChecked()
+            config_states = {
+                "cb_auto_mode": tab.cb_auto_mode.isChecked(),
+                "cb_auto_gen": tab.cb_auto_gen.isChecked(),
+                "cb_download_ccxt": tab.cb_download_ccxt.isChecked(),
+                "cb_download_massive": tab.cb_download_massive.isChecked(),
+                "cb_gen_signals": tab.cb_gen_signals.isChecked()
+            }
             
             interval = 1.0
             import os
@@ -741,7 +1082,7 @@ class GuiBinder:
                         interval = data.get("copilot", {}).get("routine_interval_hours", 1.0)
                 except Exception: pass
             
-            logic.start_auto_routine(use_ccxt, use_massive, auto_gen, interval)
+            logic.start_auto_routine(config_states, interval)
             
         def on_stop_auto():
             tab.log_console.append(f"[{__import__('datetime').datetime.now().strftime('%H:%M:%S')}] 🛑 Зупинка автономного планувальника...")
@@ -749,16 +1090,72 @@ class GuiBinder:
             tab.btn_active.setText("● ACTIVE")
             logic.stop_auto_routine()
             
-        def on_scan_gaps():
-            tab.log_console.append(f"[{__import__('datetime').datetime.now().strftime('%H:%M:%S')}] --- Розпочато сканування прогалин ---")
+        from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtGui import QAction
+
+        def add_task_to_list(task_name):
+            tab.tasks_list.addItem(task_name)
+            tab.log_console.append(f"[{__import__('datetime').datetime.now().strftime('%H:%M:%S')}] Додано задачу: {task_name}")
+
+        def show_add_task_menu():
+            menu = QMenu(tab)
+            for t in ["Аналіз прогалин", "Авто-завантаження", "Генерація стратегій", "Очищення бази"]:
+                act = QAction(t, tab)
+                act.triggered.connect(lambda checked, name=t: add_task_to_list(name))
+                menu.addAction(act)
+            menu.exec(tab.btn_add_task.mapToGlobal(tab.btn_add_task.rect().bottomLeft()))
+
+        def run_next_task():
+            if tab.tasks_list.count() == 0:
+                tab.log_console.append(f"[{__import__('datetime').datetime.now().strftime('%H:%M:%S')}] 🎉 Усі задачі в черзі виконано.")
+                tab.btn_start_task.setEnabled(True)
+                return
+            
+            item = tab.tasks_list.takeItem(0)
+            task_name = item.text()
+            tab.log_console.append(f"[{__import__('datetime').datetime.now().strftime('%H:%M:%S')}] ▶ Виконується задача: {task_name}")
+            
             use_ccxt = tab.cb_download_ccxt.isChecked()
             use_massive = tab.cb_download_massive.isChecked()
-            logic.analyze_database(use_ccxt, use_massive)
+            
+            if task_name == "Аналіз прогалин":
+                logic.analyze_database(False, False)
+            elif task_name == "Авто-завантаження":
+                logic.analyze_database(use_ccxt, use_massive)
+            elif task_name == "Генерація стратегій":
+                interval = 1.0
+                import os, json
+                if os.path.exists(tab.config_path):
+                    try:
+                        with open(tab.config_path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                            interval = data.get("copilot", {}).get("routine_interval_hours", 1.0)
+                    except: pass
+                config_states = {
+                    "cb_auto_mode": False,
+                    "cb_auto_gen": True,
+                    "cb_download_ccxt": False,
+                    "cb_download_massive": False,
+                    "cb_gen_signals": False
+                }
+                logic.start_auto_routine(config_states, interval)
+                logic.service.task_finished.emit("strategy_gen")
+            elif task_name == "Очищення бази":
+                tab.log_console.append(f"[{__import__('datetime').datetime.now().strftime('%H:%M:%S')}] Очищення бази успішно імітовано.")
+                logic.service.task_finished.emit("cleanup")
+            else:
+                logic.service.task_finished.emit("unknown")
+
+        def start_task_queue():
+            if tab.tasks_list.count() > 0:
+                tab.btn_start_task.setEnabled(False)
+                run_next_task()
             
         tab.btn_active.clicked.connect(on_start_auto)
         tab.btn_stop.clicked.connect(on_stop_auto)
-        tab.btn_start_task.clicked.connect(on_scan_gaps)
-        tab.btn_add_task.clicked.connect(lambda: tab.log_console.append(f"[{__import__('datetime').datetime.now().strftime('%H:%M:%S')}] --- Відкрито меню додавання задачі (В розробці) ---"))
+        tab.btn_start_task.clicked.connect(start_task_queue)
+        tab.btn_add_task.clicked.connect(show_add_task_menu)
+        logic.service.task_finished.connect(lambda task_type: run_next_task())
         
         # Оновлення статистики
         logic.stats_ready.connect(tab.update_stats_ui)
@@ -779,5 +1176,4 @@ class GuiBinder:
         tabs_widget.addTab(self.v.chart_tab, "Графік (finplot)")
         tabs_widget.addTab(self.v.backtest_tab, "Тестер стратегій")
         tabs_widget.addTab(self.v.copilot_tab, "Автономний Копілот")
-        tabs_widget.addTab(self.v.live_trading_tab, "Лайв Торгівля")
         tabs_widget.addTab(self.v.settings_tab, "Налаштування")

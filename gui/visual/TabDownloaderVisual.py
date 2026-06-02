@@ -64,7 +64,7 @@ class TabDownloaderVisual(QWidget):
         source_group = QGroupBox("Цільове джерело та база даних")
         source_group.setStyleSheet("QGroupBox { border: 1px solid #313244; border-radius: 6px; margin-top: 12px; padding-top: 12px; font-weight: bold; color: #A6ADC8; }")
         source_layout = QVBoxLayout(source_group)
-        self.radio_massive = QRadioButton("Massive API (База 'trading_data_massive.duckdb')")
+        self.radio_massive = QRadioButton("Massive API (База 'main.duckdb')")
         self.radio_massive.setChecked(True)
         self.radio_exchange = QRadioButton("Біржовий коннектор (Окремі бази)")
         source_layout.addWidget(self.radio_massive)

@@ -1,38 +1,32 @@
 import os
 import pandas as pd
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QMenuBar, QSplitter
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QMenuBar, QSplitter, 
+                               QDialog, QRadioButton, QDialogButtonBox, QGroupBox, QButtonGroup, QComboBox, QCheckBox, QPushButton)
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt, pyqtSignal
 
 os.environ["LANG"] = "en_US.UTF-8"
 os.environ["LC_ALL"] = "en_US.UTF-8"
-import finplot as fplt
 
-from gui.visual.UiElements import TradeDetailPanel
+from gui.visual.UiElements import TradeDetailPanel, SimTradesPanel
+from gui.visual.CustomChart import NativeChartWidget
 
 #==================================
 # TabChartVisual
 #==================================
 class TabChartVisual(QWidget):
-    chart_clicked = pyqtSignal(object) # Сигнал при кліку на графік
-    x_range_changed = pyqtSignal(object, object) # Сигнал при зміні діапазону X
+    chart_clicked = pyqtSignal(object) # Залишаємо для сумісності з GuiBinder
+    x_range_changed = pyqtSignal(object, object)
     reset_camera_requested = pyqtSignal()
+    clear_temp_sim_requested = pyqtSignal()
 
-    # ----------------------------------
-    # __init__, ініціалізація візуалу графіку
-    # ----------------------------------
-    # Параметри:
-    # parent (QWidget): Батьківський віджет
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.ax = None
+        self.ax = None # Пустишка, щоб не крашився GuiBinder
+        self.chart = None
         self.trades_drawn = False
         self.init_ui()
 
-    # ----------------------------------
-    # init_ui, побудова інтерфейсу
-    # ----------------------------------
-    # Параметри: немає
     def init_ui(self):
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -54,6 +48,20 @@ class TabChartVisual(QWidget):
         self.reset_cam_action.triggered.connect(self.reset_camera_requested.emit)
         self.show_menu.addAction(self.reset_cam_action)
         
+        self.lock_cam_action = QAction("🔒 Заблокувати камеру", self)
+        self.lock_cam_action.setCheckable(True)
+        self.lock_cam_action.setChecked(True)
+        self.show_menu.addAction(self.lock_cam_action)
+        
+        self.appearance_action = QAction("🎨 Налаштування вигляду...", self)
+        self.show_menu.addAction(self.appearance_action)
+        
+        self.sim_menu = self.menubar.addMenu("Live Симуляція")
+        self.sim_toggle_action = QAction("▶ Запустити симуляцію", self)
+        self.sim_settings_action = QAction("⚙️ Налаштування...", self)
+        self.sim_menu.addAction(self.sim_toggle_action)
+        self.sim_menu.addAction(self.sim_settings_action)
+        
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.layout.addWidget(self.splitter)
         
@@ -64,79 +72,217 @@ class TabChartVisual(QWidget):
         
         self.detail_panel = TradeDetailPanel()
         self.detail_panel.hide()
-        self.splitter.addWidget(self.detail_panel)
+        
+        self.sim_panel = SimTradesPanel()
+        self.sim_panel.hide()
+        
+        self.right_panel = QWidget()
+        right_layout = QVBoxLayout(self.right_panel)
+        right_layout.setContentsMargins(0,0,0,0)
+        right_layout.addWidget(self.detail_panel)
+        right_layout.addWidget(self.sim_panel)
+        self.right_panel.hide()
+        
+        self.splitter.addWidget(self.right_panel)
         self.splitter.setSizes([800, 200])
-        
-        fplt.foreground = '#eef'
-        fplt.background = '#1e1f22'
-        fplt.odd_plot_background = '#25262a'
-        fplt.cross_hair_color = '#fff'
 
-    # ----------------------------------
-    # setup_chart, налаштування та відображення свічок
-    # ----------------------------------
-    # Параметри:
-    # df (pd.DataFrame): Дані OHLCV
     def setup_chart(self, df: pd.DataFrame):
-        if self.ax is None:
-            self.ax = fplt.create_plot()
-            self.chart_layout.addWidget(self.ax.vb.win)
-            self.ax.vb.sigXRangeChanged.connect(self._on_x_range_changed)
-            self.ax.scene().sigMouseClicked.connect(self._on_chart_clicked)
+        if self.chart is None:
+            self.chart = NativeChartWidget(self.chart_container)
+            self.chart_layout.addWidget(self.chart)
+            self.chart.chart_clicked.connect(self.chart_clicked.emit)
         else:
-            self.ax.clear()
-            self.ax.vb.reset()
+            self.right_panel.hide()
             self.detail_panel.hide()
-            if hasattr(self.ax.vb, 'datasrc'):
-                self.ax.vb.datasrc = None
-                
-        self.trades_drawn = False
-        df_chart = df[['open', 'close', 'high', 'low']]
-        fplt.candlestick_ochl(df_chart, ax=self.ax)
-        fplt.refresh()
-        
-    # ----------------------------------
-    # update_chart_data, дозавантаження та перемальовування
-    # ----------------------------------
-    # Параметри:
-    # df (pd.DataFrame): Дані OHLCV
-    # added_count (int): Кількість нових рядків
-    def update_chart_data(self, df: pd.DataFrame, added_count: int):
-        (x_min, x_max), (y_min, y_max) = self.ax.vb.viewRange()
-        
-        self.ax.clear()
-        self.ax.vb.reset()
-        if hasattr(self.ax.vb, 'datasrc'):
-            self.ax.vb.datasrc = None
+            self.sim_panel.hide()
+            self.chart.clear_markers()
             
-        df_chart = df[['open', 'close', 'high', 'low']]
-        fplt.candlestick_ochl(df_chart, ax=self.ax)
+        self.trades_drawn = False
         
-        self.ax.vb.setXRange(x_min + added_count, x_max + added_count, padding=0)
-        self.ax.vb.setYRange(y_min, y_max, padding=0)
-        fplt.refresh()
+        df_chart = self._format_df(df)
+        if not df_chart.empty:
+            self.chart.set_data(df_chart)
 
-    # ----------------------------------
-    # draw_trades, малювання маркерів угод
-    # ----------------------------------
-    # Параметри:
-    # entries (pd.Series): Точки відкриття
-    # exits (pd.Series): Точки закриття
+    def update_chart_data(self, df: pd.DataFrame, added_count: int, is_simulating: bool = False):
+        if self.chart is None or df.empty: return
+        
+        if is_simulating:
+            # Отримуємо тільки останній ряд і додаємо його як тік
+            last_row = df.iloc[-1:]
+            df_chart = self._format_df(last_row)
+            if not df_chart.empty:
+                self.chart.update_data(df_chart.iloc[0].to_dict())
+        else:
+            df_chart = self._format_df(df)
+            if not df_chart.empty:
+                self.chart.set_data(df_chart, maintain_view_for_added=added_count)
+
     def draw_trades(self, entries: pd.Series, exits: pd.Series):
-        if self.ax is None: return
-        fplt.plot(entries, style='v', color='#0000ff', legend='Відкриття')
-        fplt.plot(exits, style='^', color='#ff0000', legend='Закриття')
-        fplt.refresh()
+        if self.chart is None: return
+        
+        self.chart.clear_markers()
+        
+        for time_val, price in entries.dropna().items():
+            self.chart.add_marker(time_val=time_val, position='belowBar', shape='arrowUp', color='#26a69a', text='BUY')
+            
+        for time_val, price in exits.dropna().items():
+            self.chart.add_marker(time_val=time_val, position='aboveBar', shape='arrowDown', color='#ef5350', text='SELL')
+            
         self.trades_drawn = True
 
-    # ----------------------------------
-    # _on_x_range_changed, ретрансляція сигналу
-    # ----------------------------------
-    def _on_x_range_changed(self, vb, xrange):
-        self.x_range_changed.emit(vb, xrange)
+    def _format_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        df_chart = df.copy()
+        if 'time' not in df_chart.columns:
+            df_chart.reset_index(inplace=True)
+            if 'index' in df_chart.columns:
+                df_chart.rename(columns={'index': 'time'}, inplace=True)
+                
+        if 'time' not in df_chart.columns:
+            return pd.DataFrame()
+            
+        df_chart = df_chart[['time', 'open', 'high', 'low', 'close']]
+        df_chart.dropna(inplace=True)
+        
+        if not df_chart.empty:
+            df_chart['time'] = pd.to_datetime(df_chart['time']).dt.strftime('%Y-%m-%d %H:%M:%S')
+            
+        return df_chart
+        return df_chart
 
-    # ----------------------------------
-    # _on_chart_clicked, ретрансляція сигналу
-    # ----------------------------------
-    def _on_chart_clicked(self, event):
-        self.chart_clicked.emit(event)
+#==================================
+# AppearanceSettingsDialog
+#==================================
+from PyQt6.QtWidgets import QColorDialog, QPushButton, QHBoxLayout, QLabel
+class AppearanceSettingsDialog(QDialog):
+    def __init__(self, current_config, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Налаштування вигляду")
+        self.setModal(True)
+        self.config = current_config.copy()
+        self.init_ui()
+        
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        
+        def add_color_picker(label_text, key):
+            row = QHBoxLayout()
+            row.addWidget(QLabel(label_text))
+            btn = QPushButton()
+            btn.setStyleSheet(f"background-color: {self.config.get(key, '#000')}")
+            def pick_color():
+                col = QColorDialog.getColor()
+                if col.isValid():
+                    self.config[key] = col.name()
+                    btn.setStyleSheet(f"background-color: {col.name()}")
+            btn.clicked.connect(pick_color)
+            row.addWidget(btn)
+            layout.addLayout(row)
+            
+        add_color_picker("Зростаюча свічка (Up):", "up_color")
+        add_color_picker("Спадаюча свічка (Down):", "down_color")
+        add_color_picker("Фон графіка (Background):", "bg_color")
+        add_color_picker("Колір сітки (Grid):", "grid_color")
+        
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+#==================================
+# SimulationSettingsDialog
+#==================================
+class SimulationSettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Налаштування Симуляції")
+        self.setModal(True)
+        self.init_ui()
+        
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        
+        # Strategy selection
+        strat_group = QGroupBox("Стратегія (Опціонально)")
+        strat_layout = QVBoxLayout()
+        self.combo_strat = QComboBox()
+        self.combo_strat.addItem("Без стратегії")
+        
+        from utils.PathManager import PathManager
+        strat_dir = PathManager.get_strategies_dir()
+        if os.path.exists(strat_dir):
+            strats = [f for f in os.listdir(strat_dir) if f.endswith('.py')]
+            self.combo_strat.addItems(strats)
+            
+        strat_layout.addWidget(self.combo_strat)
+        strat_group.setLayout(strat_layout)
+        layout.addWidget(strat_group)
+        
+        speed_group = QGroupBox("Швидкість (відносно таймфрейму)")
+        speed_layout = QVBoxLayout()
+        self.speed_bg = QButtonGroup(self)
+        
+        speeds = [
+            ("1x", 1), 
+            ("2x", 2), 
+            ("5x", 5), 
+            ("10x", 10), 
+            ("50x", 50),
+            ("100x", 100),
+            ("500x", 500),
+            ("1000x", 1000),
+            ("5000x", 5000)
+        ]
+        self.speed_buttons = {}
+        for text, val in speeds:
+            rb = QRadioButton(text)
+            self.speed_bg.addButton(rb)
+            self.speed_buttons[val] = rb
+            speed_layout.addWidget(rb)
+        self.speed_buttons[500].setChecked(True)
+        speed_group.setLayout(speed_layout)
+        layout.addWidget(speed_group)
+        
+        range_group = QGroupBox("Кількість прокрутки (від кінця бази)")
+        range_layout = QVBoxLayout()
+        self.range_bg = QButtonGroup(self)
+        
+        ranges = [("1 День", "1d"), ("1 Тиждень", "1w"), ("1 Місяць", "1m"), ("1 Рік", "1y"), ("Весь запис", "all")]
+        self.range_buttons = {}
+        for text, val in ranges:
+            rb = QRadioButton(text)
+            self.range_bg.addButton(rb)
+            self.range_buttons[val] = rb
+            range_layout.addWidget(rb)
+        self.range_buttons["1w"].setChecked(True)
+        range_group.setLayout(range_layout)
+        layout.addWidget(range_group)
+        
+        # New options for temporary tests
+        test_group = QGroupBox("Тимчасові таблиці тестів")
+        test_layout = QVBoxLayout()
+        self.auto_delete_cb = QCheckBox("Автоматично видаляти тест після зупинки")
+        self.auto_delete_cb.setChecked(True)
+        test_layout.addWidget(self.auto_delete_cb)
+        
+        self.btn_clear_tests = QPushButton("🗑️ Очистити від усіх тестів (temp_sim_...)")
+        self.btn_clear_tests.setStyleSheet("background-color: #F38BA8; color: #11111B; font-weight: bold; padding: 5px; border-radius: 4px;")
+        test_layout.addWidget(self.btn_clear_tests)
+        
+        test_group.setLayout(test_layout)
+        layout.addWidget(test_group)
+        
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+    def get_settings(self):
+        multiplier = 10
+        for val, rb in self.speed_buttons.items():
+            if rb.isChecked(): multiplier = val
+            
+        rng = "1w"
+        for val, rb in self.range_buttons.items():
+            if rb.isChecked(): rng = val
+            
+        return {"multiplier": multiplier, "range": rng, "strategy": self.combo_strat.currentText(), "auto_delete": self.auto_delete_cb.isChecked()}

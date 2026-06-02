@@ -77,20 +77,19 @@ class MainAppWindow(QMainWindow):
         widget = self.tabs.widget(index)
         
         if widget == self.visual_registry.explorer_tab:
-            # Оновлюємо бази даних у провіднику
-            self.visual_registry.explorer_tab.tree_view.populate(self.logic_registry.explorer.get_databases_dict(self.is_db_downloading))
+            # Оновлюємо бази даних у провіднику асинхронно
+            self.visual_registry.explorer_tab.tree_view.clear()
+            from PyQt6.QtWidgets import QTreeWidgetItem
+            self.visual_registry.explorer_tab.tree_view.addTopLevelItem(QTreeWidgetItem(["Завантаження..."]))
+            self.logic_registry.explorer.request_databases_async(self.is_db_downloading)
             
         elif widget == self.visual_registry.chart_tab:
             # Оновлюємо список доступних активів на графіку
-            assets = self.logic_registry.chart.get_available_assets()
-            self.visual_registry.chart_tab.asset_menu.clear()
-            from PyQt6.QtGui import QAction
-            for db, t in assets:
-                act = QAction(f"{t} ({os.path.basename(db)})", self.visual_registry.chart_tab)
-                act.triggered.connect(lambda checked, d=db, tbl=t: self._load_chart_from_action(d, tbl))
-                self.visual_registry.chart_tab.asset_menu.addAction(act)
+            if hasattr(self.visual_registry.chart_tab, 'refresh_menus'):
+                self.visual_registry.chart_tab.refresh_menus()
                 
             # Оновлюємо випадаючий список бектестів
+            from PyQt6.QtGui import QAction
             tables = self.logic_registry.chart.get_backtest_tables()
             self.visual_registry.chart_tab.show_trades_menu.clear()
             if not tables:
@@ -104,10 +103,9 @@ class MainAppWindow(QMainWindow):
                     self.visual_registry.chart_tab.show_trades_menu.addAction(act)
                     
         elif widget == self.visual_registry.backtest_tab:
-            # Оновлюємо списки баз даних та активів у вкладці бектестів
-            tables = self.logic_registry.backtest.get_tables()
-            self.visual_registry.backtest_tab.table_combo.clear()
-            self.visual_registry.backtest_tab.table_combo.addItems(tables)
+            # Оновлюємо списки активів у вкладці бектестів
+            if hasattr(self.visual_registry.backtest_tab, 'refresh_menus'):
+                self.visual_registry.backtest_tab.refresh_menus()
 
     def _load_chart_from_action(self, db_path, table_name):
         if self.visual_registry.chart_tab.ax is not None:

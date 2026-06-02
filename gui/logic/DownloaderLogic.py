@@ -10,7 +10,6 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from utils.DataBaseManager import DataBaseManager
 from utils.Trading.CCXTModule import CCXTModule
 from utils.Trading.MassiveModule import MassiveModule
-from utils.config import bybit_key, bybit_secret_key, massive_key
 
 #==================================
 # StringCapture
@@ -87,19 +86,30 @@ class DownloaderWorker(QThread):
             total_loaded_candles = 0
 
             if source_type == "massive":
-                if not massive_key:
+                from gui.logic.SettingsLogic import SettingsLogic
+                keys = SettingsLogic().load_api_keys()
+                current_massive_key = keys.get("MASSIVE_KEY")
+
+                if not current_massive_key:
                     self.finished_error.emit("MASSIVE_KEY відсутній в .env файлі!")
                     return
 
-                db_filename = "trading_data_massive.duckdb"
-                db_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'db'))
-                db_path = os.path.join(db_dir, db_filename)
+                from utils.PathManager import PathManager
+                db_path = PathManager.get_db_path()
+                db_filename = os.path.basename(db_path)
                 
                 dbm = DataBaseManager(db_path)
                 print(f"📁 Підключення до бази: {db_filename}")
                 print(f"🔑 Ініціалізація MassiveModule...")
                 
-                massive_mod = MassiveModule(dbm, massive_key)
+                massive_free_tier = self.settings.get("massive_free_tier", True)
+                massive_free_requests = self.settings.get("massive_free_requests", 5)
+                massive_free_wait_minutes = self.settings.get("massive_free_wait_minutes", 3)
+                
+                massive_mod = MassiveModule(dbm, current_massive_key, 
+                                            free_tier=massive_free_tier,
+                                            free_requests=massive_free_requests,
+                                            free_wait_minutes=massive_free_wait_minutes)
                 
                 start_date_str = datetime.fromtimestamp(start_ms / 1000).strftime('%Y-%m-%d')
                 end_date_str = datetime.fromtimestamp(end_ms / 1000).strftime('%Y-%m-%d')
@@ -114,6 +124,8 @@ class DownloaderWorker(QThread):
                         if not self.is_running:
                             print("❌ Завантаження зупинено.")
                             dbm.disconnect()
+                            sys.stdout = old_stdout
+                            self.finished_ok.emit(total_loaded_candles)
                             return
 
                         symbol_formatted = symbol.upper()
@@ -143,7 +155,7 @@ class DownloaderWorker(QThread):
                             )
 
                             try:
-                                count_df = dbm.conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+                                count_df = dbm.conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()
                                 if count_df: self.candles_updated.emit(total_loaded_candles + count_df[0])
                             except Exception: pass
 
@@ -155,7 +167,7 @@ class DownloaderWorker(QThread):
                             time.sleep(1.5)
 
                         try:
-                            count_df = dbm.conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+                            count_df = dbm.conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()
                             if count_df:
                                 total_loaded_candles += count_df[0]
                                 self.candles_updated.emit(total_loaded_candles)
@@ -163,9 +175,9 @@ class DownloaderWorker(QThread):
                 dbm.disconnect()
 
             else:
-                db_filename = f"{exchange_name}_data.duckdb"
-                db_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'db'))
-                db_path = os.path.join(db_dir, db_filename)
+                from utils.PathManager import PathManager
+                db_path = PathManager.get_db_path()
+                db_filename = os.path.basename(db_path)
                 dbm = DataBaseManager(db_path)
                 
                 print(f"📁 Підключення до бази: {db_filename}")
@@ -173,9 +185,14 @@ class DownloaderWorker(QThread):
                 
                 ccxt_mod = CCXTModule(exchange_name, dbm)
                 
-                if exchange_name == "bybit" and bybit_key and bybit_secret_key:
+                from gui.logic.SettingsLogic import SettingsLogic
+                keys = SettingsLogic().load_api_keys()
+                current_bybit_key = keys.get("BYBIT_KEY")
+                current_bybit_secret = keys.get("BYBIT_SECRET_KEY")
+                
+                if exchange_name == "bybit" and current_bybit_key and current_bybit_secret:
                     print("🔑 Використання API ключів Bybit...")
-                    ccxt_mod.connect(bybit_key, bybit_secret_key)
+                    ccxt_mod.connect(current_bybit_key, current_bybit_secret)
                 
                 total_range_ms = end_ms - start_ms
                 if total_range_ms <= 0: total_range_ms = 1
@@ -186,6 +203,8 @@ class DownloaderWorker(QThread):
                         if not self.is_running:
                             print("❌ Завантаження зупинено.")
                             dbm.disconnect()
+                            sys.stdout = old_stdout
+                            self.finished_ok.emit(total_loaded_candles)
                             return
 
                         print(f"\n📥 [{exchange_name.upper()}] Початок завантаження {symbol} [{tf}]...")
@@ -212,7 +231,7 @@ class DownloaderWorker(QThread):
                             current_start = last_t + 1
                             
                             try:
-                                count_df = dbm.conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+                                count_df = dbm.conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()
                                 if count_df: self.candles_updated.emit(total_loaded_candles + count_df[0])
                             except Exception: pass
 
@@ -223,7 +242,7 @@ class DownloaderWorker(QThread):
                             time.sleep(0.3)
 
                         try:
-                            count_df = dbm.conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+                            count_df = dbm.conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()
                             if count_df:
                                 total_loaded_candles += count_df[0]
                                 self.candles_updated.emit(total_loaded_candles)
@@ -305,16 +324,9 @@ class DownloaderLogic:
     # ----------------------------------
     # get_active_download_db_path, отримання бази, що завантажується
     # ----------------------------------
-    # Параметри:
-    # source_type (str): Тип джерела
-    # exchange (str): Назва біржі
-    def get_active_download_db_path(self, source_type: str, exchange: str) -> str:
+    # Параметри: немає
+    def get_active_download_db_path(self) -> str:
         if self.worker and self.worker.isRunning():
-            if source_type == "massive":
-                db_filename = "trading_data_massive.duckdb"
-            else:
-                db_filename = f"{exchange.lower()}_data.duckdb"
-                
-            db_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'db'))
-            return os.path.join(db_dir, db_filename)
+            from utils.PathManager import PathManager
+            return PathManager.get_db_path()
         return None

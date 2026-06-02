@@ -11,9 +11,9 @@ class SettingsLogic:
     # ----------------------------------
     # Параметри: немає
     def __init__(self):
-        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-        self.config_path = os.path.join(base_dir, 'data', 'config', 'settings.json')
-        self.env_path = os.path.join(base_dir, '.env')
+        from utils.PathManager import PathManager
+        self.config_path = PathManager.get_settings_path()
+        self.env_path = os.path.join(PathManager.get_user_data_dir(), '.env')
         
         self.default_data = {
             "trading_mode": {
@@ -30,7 +30,17 @@ class SettingsLogic:
             "copilot": {
                 "half_life_days": 90,
                 "min_score_for_best": 0.6,
-                "routine_interval_hours": 1.0
+                "routine_interval_minutes": 60,
+                "update_threshold_weight": 15.0,
+                "active_strategies": []
+            },
+            "downloader": {
+                "massive_free_tier": True,
+                "massive_free_requests": 5,
+                "massive_free_wait_minutes": 3
+            },
+            "notifications": {
+                "telegram_enabled": False
             }
         }
         
@@ -91,7 +101,9 @@ class SettingsLogic:
             "BYBIT_SECRET_KEY": os.getenv("BYBIT_SECRET_KEY", ""),
             "BINANCE_KEY": os.getenv("BINANCE_KEY", ""),
             "BINANCE_SECRET_KEY": os.getenv("BINANCE_SECRET_KEY", ""),
-            "MASSIVE_KEY": os.getenv("MASSIVE_KEY", "")
+            "MASSIVE_KEY": os.getenv("MASSIVE_KEY", ""),
+            "TELEGRAM_BOT_TOKEN": os.getenv("TELEGRAM_BOT_TOKEN", ""),
+            "TELEGRAM_CHAT_ID": os.getenv("TELEGRAM_CHAT_ID", "")
         }
 
     # ----------------------------------

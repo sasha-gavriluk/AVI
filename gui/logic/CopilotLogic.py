@@ -14,8 +14,9 @@ class CopilotLogic(QObject):
     # Параметри: немає
     def __init__(self):
         super().__init__()
+        from utils.PathManager import PathManager
         # Ініціалізуємо TradingCopilot один раз для всього додатку
-        self.trading_copilot = TradingCopilot(db_path="main.duckdb")
+        self.trading_copilot = TradingCopilot(db_path=PathManager.get_db_path())
         self.service = CopilotService()
 
     # ----------------------------------
@@ -25,18 +26,18 @@ class CopilotLogic(QObject):
     # use_ccxt (bool): чи використовувати CCXT
     # use_massive (bool): чи використовувати Massive
     def analyze_database(self, use_ccxt: bool, use_massive: bool):
-        self.service.analyze_database("main.duckdb", use_ccxt, use_massive)
+        from utils.PathManager import PathManager
+        self.service.analyze_database(PathManager.get_db_path(), use_ccxt, use_massive)
 
     # ----------------------------------
     # start_auto_routine, запуск автономного планувальника
     # ----------------------------------
     # Параметри:
-    # use_ccxt (bool): чи використовувати CCXT
-    # use_massive (bool): чи використовувати Massive
-    # auto_gen (bool): чи автогенерувати стратегії
-    # interval_hours (float): інтервал у годинах
-    def start_auto_routine(self, use_ccxt: bool, use_massive: bool, auto_gen: bool, interval_hours: float):
-        self.service.start_scheduler("main.duckdb", use_ccxt, use_massive, auto_gen, interval_hours)
+    # config_states (dict): словник станів чекбоксів
+    # interval_minutes (int): інтервал у хвилинах
+    def start_auto_routine(self, config_states: dict, interval_minutes: int):
+        from utils.PathManager import PathManager
+        self.service.start_scheduler(PathManager.get_db_path(), config_states, interval_minutes)
 
     # ----------------------------------
     # stop_auto_routine, зупинка планувальника
