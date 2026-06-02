@@ -44,7 +44,8 @@ class MarketRunner(BaseSettings):
         self.config_mode = "Standard"
         self.bo_expiration_bars = 1
         
-        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data', 'config', 'settings.json'))
+        from utils.PathManager import PathManager
+        config_path = PathManager.get_settings_path()
         if os.path.exists(config_path):
             try:
                 with open(config_path, 'r', encoding='utf-8') as f:
@@ -60,7 +61,7 @@ class MarketRunner(BaseSettings):
     # Запуск двигуна бэктесту
     #------------------------------
 
-    def run(self, result_table_name: str = None):
+    def run(self, result_table_name: str = None, df=None):
         """Запуск бэктесту: ініціалізація БД, генерація сигналів та виконання."""
 
         print("Запуск бэктесту через Rules Engine...")
@@ -69,41 +70,45 @@ class MarketRunner(BaseSettings):
         if result_table_name is None:
             result_table_name = f'backtest_results_{int(time.time() * 1000)}'
         
-        with DataBaseManager(self.db_path) as db:
-
-            if self.db_table_path is None:
-                print("Помилка: Не вказано таблицю з даними (db_table_path).")
-                return
+        def _execute_run(db, current_df):
+            if current_df is None or current_df.empty:
+                print(f"Помилка: Дані в таблиці відсутні.")
+                return None
                 
-            # Отримуємо дані для бэктесту
-            df = db.get_data_as_dataframe(self.db_table_path)
-            
-            if df is None or df.empty:
-                print(f"Помилка: Дані в таблиці {self.db_table_path} відсутні.")
-                return
+            print(f"Завантажено {len(current_df)} рядків.")
                 
-            print(f"Завантажено {len(df)} рядків з таблиці {self.db_table_path}.")
-            
             # Сортуємо по часу для впевненості
-            if 'timestamp' in df.columns:
-                df = df.dropna(subset=['timestamp'])
-                df = df.sort_values('timestamp').reset_index(drop=True)
+            if 'timestamp' in current_df.columns:
+                current_df = current_df.dropna(subset=['timestamp'])
+                current_df = current_df.sort_values('timestamp').reset_index(drop=True)
 
             # 1. Запускаємо рушій правил (векторизовано)
             from utils.rules_engine import IndicatorRegistry
-            registry = IndicatorRegistry(df)
+            registry = IndicatorRegistry(current_df)
             
             print("Обчислення сигналів стратегії...")
             signals_df = self.strategy.execute(registry)
             
             # Оновлюємо df новими індикаторами, які створив реєстр
-            df = registry.data
-                
+            current_df = registry.data
+                    
             # 2. Ініціалізуємо Deal Writer
-            deal_writer = LaboratoryBacktesterDealWriter(db_manager=db, df=df, table_name=self.db_table_path, settings=self)
+            deal_writer = LaboratoryBacktesterDealWriter(db_manager=db, df=current_df, table_name=self.db_table_path, settings=self)
             
             # 3. Виконуємо ітерацію по розрахованих сигналах
-            return self._process_signals(df, signals_df, deal_writer, result_table_name=result_table_name)
+            return self._process_signals(current_df, signals_df, deal_writer, result_table_name=result_table_name)
+
+        if df is not None:
+            return _execute_run(None, df)
+        else:
+            with DataBaseManager(self.db_path) as db:
+                if self.db_table_path is None:
+                    print("Помилка: Не вказано таблицю з даними (db_table_path).")
+                    return None
+                    
+                # Отримуємо дані для бэктесту
+                db_df = db.get_data_as_dataframe(self.db_table_path)
+                return _execute_run(db, db_df)
 
     #------------------------------
     # Процес ітерації по сигналах
@@ -115,6 +120,9 @@ class MarketRunner(BaseSettings):
         current_position = None  # None, 'BUY' або 'SELL'
         current_trade_id = None
         
+        # Відстеження стадій пре-сигналу, щоб не спамити (50, 75, 90)
+        pre_signal_stage = 0 
+        
         print("Виконання угод...")
         for i in range(len(df)):
             current_timestamp = float(df.iloc[i]['timestamp']) if 'timestamp' in df.columns else float(i)
@@ -122,6 +130,24 @@ class MarketRunner(BaseSettings):
             # Отримуємо розраховані рушієм сигнали
             is_entry = bool(signals_df.iloc[i]['entry'])
             is_exit = bool(signals_df.iloc[i]['exit'])
+            proximity = float(signals_df.iloc[i]['entry_proximity']) if 'entry_proximity' in signals_df.columns else 0.0
+
+            if current_position is None and not is_entry:
+                # Early Warning (Pre-Signal) логіка
+                if proximity >= 0.9 and pre_signal_stage < 90:
+                    # print(f"[PRE-SIGNAL] {df.iloc[i].get('timestamp_str', current_timestamp)}: Готовність сигналу 90% (Майже сформовано!)")
+                    pre_signal_stage = 90
+                elif proximity >= 0.75 and proximity < 0.9 and pre_signal_stage < 75:
+                    # print(f"[PRE-SIGNAL] {df.iloc[i].get('timestamp_str', current_timestamp)}: Готовність сигналу 75%")
+                    pre_signal_stage = 75
+                elif proximity >= 0.50 and proximity < 0.75 and pre_signal_stage < 50:
+                    # print(f"[PRE-SIGNAL] {df.iloc[i].get('timestamp_str', current_timestamp)}: Готовність сигналу 50%")
+                    pre_signal_stage = 50
+                elif proximity < 0.3:
+                    # Скидаємо стадію, якщо ринок відійшов від сигналу
+                    pre_signal_stage = 0
+            elif is_entry:
+                pre_signal_stage = 0
 
             # ==========================================
             # 1. ЛОГІКА ВИХОДУ З УГОДИ

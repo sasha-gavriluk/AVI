@@ -22,7 +22,8 @@ class BacktestLogic:
     def __init__(self, copilot_logic):
         self.copilot = copilot_logic.trading_copilot
         self.last_run_context = {}
-        self.meta_config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'config', 'strategy_meta.json')
+        from utils.PathManager import PathManager
+        self.meta_config_path = PathManager.get_strategy_meta_path()
         self.meta_data = self._load_meta_data()
 
     # ----------------------------------
@@ -75,8 +76,8 @@ class BacktestWorker(QThread):
     finished_ok = pyqtSignal(str)
     finished_error = pyqtSignal(str)
     
-    def __init__(self, code: str, db_path: str, table_name: str, result_table: str, copilot=None):
-        super().__init__()
+    def __init__(self, code: str, db_path: str, table_name: str, result_table: str, copilot=None, parent=None):
+        super().__init__(parent)
         self.code = code
         self.db_path = db_path
         self.table_name = table_name
@@ -101,12 +102,24 @@ class BacktestWorker(QThread):
                 self.log_message.emit("<b>🧠 Copilot аналізує стратегію...</b>")
                 report = self.copilot.analyze(self.code)
                 tf = self.table_name.split("_")[-1] if "_" in self.table_name else "1h"
-                prediction = self.copilot.predict_success_chance(self.code, tf)
-                self.log_message.emit(f"<b>📈 Прогноз AI:</b> Імовірність успіху: <span style='color: #89B4FA'>{prediction.get('chance', '--')}%</span>")
+                indicators_used = [details['arg'] for var, details in report.get("variables", {}).items() if details.get('arg')]
+                prediction = self.copilot.predict_success_chance(self.table_name, tf, indicators_used)
+                
+                if prediction.get("status") == "exact_match":
+                    msg = f"Точний збіг (WR: {prediction.get('win_rate', 0):.1f}%, PF: {prediction.get('profit_factor', 0):.2f})"
+                elif prediction.get("status") == "similar_match":
+                    msg = "Аналіз на основі досвіду"
+                else:
+                    msg = prediction.get("message", "Невідомо")
+                    
+                self.log_message.emit(f"<b>📈 Прогноз AI:</b> <span style='color: #89B4FA'>{msg}</span>")
+                if prediction.get("summary"):
+                    self.log_message.emit(f"<pre style='color: #A6ADC8; font-size: 11px;'>{prediction.get('summary')}</pre>")
+                
                 self.log_message.emit("<b>🔄 Запуск бектесту...</b>")
                 
                 self.prediction_context = {
-                    "indicators_used": [details['arg'] for var, details in report.get("variables", {}).items() if details.get('arg')],
+                    "indicators_used": indicators_used,
                     "prediction": prediction,
                     "asset": self.table_name,
                     "logic_snapshot": report.get("logic_snapshot", {})
@@ -163,8 +176,8 @@ class AutoLearnWorker(QThread):
     progress_update = pyqtSignal(int, int)
     finished = pyqtSignal()
     
-    def __init__(self, db_path, table_name, meta_data, total_runs=1000, direction_mode="MIXED"):
-        super().__init__()
+    def __init__(self, db_path, table_name, meta_data, total_runs=1000, direction_mode="MIXED", parent=None):
+        super().__init__(parent)
         self.db_path = db_path
         self.table_name = table_name
         self.meta_data = meta_data
@@ -222,7 +235,8 @@ class AutoLearnWorker(QThread):
                 logic_snapshot = report.get("logic_snapshot", {})
                 
                 test_name = f"auto_learn_{int(time.time())}_{i}"
-                save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'strategies', 'auto_learn')
+                from utils.PathManager import PathManager
+                save_dir = os.path.join(PathManager.get_strategies_dir(), 'auto_learn')
                 os.makedirs(save_dir, exist_ok=True)
                 file_path = os.path.join(save_dir, f"{test_name}.py")
                 with open(file_path, "w", encoding="utf-8") as f:
@@ -267,7 +281,8 @@ class AutoLearnWorker(QThread):
                 
             if current_run_results:
                 self.log_message.emit("<b>🔄 Аналіз та збереження Топ-5 стратегій...</b>")
-                top5_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'strategies', 'top5')
+                from utils.PathManager import PathManager
+                top5_dir = os.path.join(PathManager.get_strategies_dir(), 'top5')
                 os.makedirs(top5_dir, exist_ok=True)
                 metadata_file = os.path.join(top5_dir, 'top5_metadata.json')
                 
@@ -318,7 +333,8 @@ class AutoLearnWorker(QThread):
                 else:
                     self.log_message.emit("ℹ️ Жодна стратегія не пройшла фільтр Топ-5 (потрібно PF > 1.0 та Угод >= 10)")
                 
-                auto_learn_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'strategies', 'auto_learn')
+                from utils.PathManager import PathManager
+                auto_learn_dir = os.path.join(PathManager.get_strategies_dir(), 'auto_learn')
                 if os.path.exists(auto_learn_dir):
                     try:
                         shutil.rmtree(auto_learn_dir)
@@ -339,8 +355,8 @@ class WfvWorker(QThread):
     log_message = pyqtSignal(str)
     finished = pyqtSignal()
     
-    def __init__(self, code: str, db_path: str, table_name: str):
-        super().__init__()
+    def __init__(self, code: str, db_path: str, table_name: str, parent=None):
+        super().__init__(parent)
         self.code = code
         self.db_path = db_path
         self.table_name = table_name

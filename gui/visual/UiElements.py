@@ -1,4 +1,5 @@
-from PyQt6.QtWidgets import QLabel, QDoubleSpinBox, QSpinBox, QComboBox, QLineEdit, QGroupBox, QWidget
+from PyQt6.QtWidgets import QLabel, QDoubleSpinBox, QSpinBox, QComboBox, QLineEdit, QGroupBox, QWidget, QVBoxLayout, QTableWidget, QHeaderView, QTableWidgetItem
+from PyQt6.QtGui import QColor
 
 class NonWheelSpinBox(QSpinBox):
     def wheelEvent(self, event):
@@ -237,3 +238,77 @@ class TradeDetailPanel(QWidget):
         self.lbl_profit.setStyleSheet("font-size: 14px; font-weight: bold;")
         self.lbl_duration.setText("Тривалість: -")
         self.txt_log.clear()
+
+from PyQt6.QtCore import pyqtSignal
+
+class SimTradesPanel(QWidget):
+    trade_selected = pyqtSignal(dict)
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+
+        self.title = QLabel("Список Угод")
+        self.title.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
+        self.layout.addWidget(self.title)
+
+        from PyQt6.QtWidgets import QAbstractItemView
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["Час", "Тип", "Статус", "Профіт"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.layout.addWidget(self.table)
+        
+        self.trades_data = []
+        self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        
+    def _on_selection_changed(self):
+        selected = self.table.selectedItems()
+        if not selected: return
+        row = selected[0].row()
+        if row < len(self.trades_data):
+            self.trade_selected.emit(self.trades_data[row])
+
+        
+    def update_trades(self, trades_list):
+        self.trades_data = list(reversed(trades_list))
+        self.table.itemSelectionChanged.disconnect(self._on_selection_changed)
+        self.table.setRowCount(0)
+        for t in reversed(trades_list):
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            
+            time_item = QTableWidgetItem(str(t.get('entry_time', '')))
+            type_item = QTableWidgetItem(str(t.get('type', '')))
+            status_item = QTableWidgetItem(str(t.get('status', '')))
+            
+            pnl = t.get('pnl', 0.0)
+            pnl_str = f"{pnl:.4f}"
+            if pnl > 0: pnl_str = f"+{pnl_str}"
+            pnl_item = QTableWidgetItem(pnl_str)
+            
+            # Color coding
+            color = QColor('#A6E3A1') if pnl > 0 else (QColor('#F38BA8') if pnl < 0 else QColor('#CBA6F7'))
+            if t.get('status') == 'CLOSED':
+                color.setAlpha(100)
+            
+            for item in (time_item, type_item, status_item, pnl_item):
+                item.setBackground(color)
+                item.setForeground(QColor('#11111B'))
+                
+            self.table.setItem(row, 0, time_item)
+            self.table.setItem(row, 1, type_item)
+            self.table.setItem(row, 2, status_item)
+            self.table.setItem(row, 3, pnl_item)
+        self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        
+    def select_trade_by_time(self, time_str):
+        self.table.itemSelectionChanged.disconnect(self._on_selection_changed)
+        for i, t in enumerate(self.trades_data):
+            if str(t.get('entry_time', '')) == time_str:
+                self.table.selectRow(i)
+                break
+        self.table.itemSelectionChanged.connect(self._on_selection_changed)

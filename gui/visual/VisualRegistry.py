@@ -3,7 +3,6 @@ from gui.visual.TabExplorerVisual import TabExplorerVisual
 from gui.visual.TabDownloaderVisual import TabDownloaderVisual
 from gui.visual.TabChartVisual import TabChartVisual
 from gui.visual.TabBacktestVisual import TabBacktestVisual
-from gui.visual.TabLiveTradingVisual import TabLiveTradingVisual
 from gui.visual.TabCopilotVisual import TabCopilotVisual
 
 #==================================
@@ -21,4 +20,3 @@ class VisualRegistry:
         self.chart_tab = TabChartVisual()
         self.backtest_tab = TabBacktestVisual()
         self.copilot_tab = TabCopilotVisual()
-        self.live_trading_tab = TabLiveTradingVisual()

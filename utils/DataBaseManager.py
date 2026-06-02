@@ -1,8 +1,12 @@
 import duckdb
 import os
 import pandas as pd
+import threading
 
 from utils.other_utils import _handle_error
+
+_db_lock = threading.Lock()
+_connections = {}
 
 class DataBaseManager:
 
@@ -12,14 +16,18 @@ class DataBaseManager:
 
     def __init__(self, db_path=None, use_default=False):
 
-        abspath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', "data", 'db'))
+        from utils.PathManager import PathManager
         
         # Рубильник: якщо передано use_default=True або не вказано шлях взагалі,
         # використовуємо стандартну єдину базу даних.
         if use_default or not db_path:
-            db_path = "main.duckdb"
-            
-        self.db_path = os.path.join(abspath, db_path)
+            self.db_path = PathManager.get_db_path()
+        else:
+            if os.path.isabs(db_path):
+                self.db_path = db_path
+            else:
+                # Якщо просто ім'я, зберігаємо в папку користувача
+                self.db_path = os.path.join(PathManager.get_user_data_dir(), db_path)
 
         if not os.path.exists(self.db_path):
             os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
@@ -32,11 +40,22 @@ class DataBaseManager:
 
     @_handle_error
     def connect(self):
-        self.conn = duckdb.connect(self.db_path)
+        with _db_lock:
+            if self.db_path not in _connections:
+                _connections[self.db_path] = {"conn": duckdb.connect(self.db_path), "ref_count": 0}
+            self.conn = _connections[self.db_path]["conn"]
+            _connections[self.db_path]["ref_count"] += 1
 
     @_handle_error
     def disconnect(self):
-        self.conn.close()
+        with _db_lock:
+            if hasattr(self, 'conn') and self.conn:
+                if self.db_path in _connections:
+                    _connections[self.db_path]["ref_count"] -= 1
+                    if _connections[self.db_path]["ref_count"] <= 0:
+                        self.conn.close()
+                        del _connections[self.db_path]
+                self.conn = None
 
     def __enter__(self):
         return self
@@ -62,7 +81,7 @@ class DataBaseManager:
     def create_table(self, table_name, schema):
         "Параметри: table_name - назва таблиці, schema - рядок з описом стовпців (наприклад: 'id INTEGER, name TEXT')"
         self._validate_table_name(table_name)
-        query = f"CREATE TABLE IF NOT EXISTS {table_name} ({schema})"
+        query = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({schema})'
         self.conn.execute(query)
 
     @_handle_error
@@ -70,7 +89,7 @@ class DataBaseManager:
         """Створює індекс якщо не існує"""
         self._validate_table_name(table_name)
         index_name = f"idx_{table_name}_{column}"
-        self.conn.execute(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name}({column})")
+        self.conn.execute(f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{table_name}"("{column}")')
 
     #------------------------------
     # Вставка даних з pandas DataFrame в таблицю новостворенную
@@ -83,7 +102,7 @@ class DataBaseManager:
         if 'timestamp' in df.columns:
             df = df.drop_duplicates(subset='timestamp', keep='last')
 
-        self.conn.execute(f"CREATE TABLE IF NOT EXISTS {table_name} AS SELECT * FROM df")
+        self.conn.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" AS SELECT * FROM df')
         
         if 'timestamp' in df.columns:
             self.create_index(table_name, 'timestamp')
@@ -101,7 +120,7 @@ class DataBaseManager:
             # Для таблиць без timestamp (наприклад, результатів бектесту) 
             # просто додаємо всі нові рядки
             print(f"Записано нових рядків (без перевірки timestamp): {len(df)}")
-            self.conn.execute(f"INSERT INTO {table_name} SELECT * FROM df")
+            self.conn.execute(f'INSERT INTO "{table_name}" SELECT * FROM df')
             return
 
         df_to_insert = df.drop_duplicates(subset='timestamp', keep='last')
@@ -110,14 +129,14 @@ class DataBaseManager:
             FROM df_to_insert AS incoming
             WHERE NOT EXISTS (
                 SELECT 1
-                FROM {table_name} AS existing
+                FROM "{table_name}" AS existing
                 WHERE existing.timestamp = incoming.timestamp
             )
         """).fetchdf()
 
         if not df_to_insert.empty:
             print(f"Записано нових рядків: {len(df_to_insert)}")
-            self.conn.execute(f"INSERT INTO {table_name} SELECT * FROM df_to_insert")
+            self.conn.execute(f'INSERT INTO "{table_name}" SELECT * FROM df_to_insert')
         else:
             print("Нових даних для запису немає")
 
@@ -159,7 +178,7 @@ class DataBaseManager:
     def get_data_as_dataframe(self, table_name):
         "Параметри: table_name - назва таблиці"
         self._validate_table_name(table_name)
-        df = self.conn.execute(f"SELECT * FROM {table_name}").fetchdf()
+        df = self.conn.execute(f'SELECT * FROM "{table_name}"').fetchdf()
         return df
 
     #------------------------------
@@ -174,7 +193,7 @@ class DataBaseManager:
     def _get_last_record_as_dataframe(self, table_name):
         "Параметри: table_name - назва таблиці"
         self._validate_table_name(table_name)
-        df = self.conn.execute(f"SELECT * FROM {table_name} WHERE timestamp = (SELECT MAX(timestamp) FROM {table_name})").fetchdf()
+        df = self.conn.execute(f'SELECT * FROM "{table_name}" WHERE timestamp = (SELECT MAX(timestamp) FROM "{table_name}")').fetchdf()
         return df
     
     #------------------------------
@@ -186,7 +205,9 @@ class DataBaseManager:
         "Параметри: table_name - назва таблиці, number - кількість рядків для отримання"
         self._validate_table_name(table_name)
         try:
-            df = self.conn.execute(f"SELECT * FROM {table_name} ORDER BY timestamp DESC LIMIT {number}").fetchdf()
+            df = self.conn.execute(f'SELECT * FROM "{table_name}" ORDER BY timestamp DESC LIMIT {number}').fetchdf()
+            if df is not None and not df.empty and 'timestamp' in df.columns:
+                df = df.sort_values('timestamp').reset_index(drop=True)
         except Exception as e:
             print(f"Помилка при отриманні даних за діапазоном: {e} - можливо, в таблиці недостатньо даних для отримання запитуваного діапазону. Використовується лише наявні дані.")
             return None
@@ -208,9 +229,9 @@ class DataBaseManager:
         query = f"""
             WITH TimeCheck AS (
                 SELECT 
-                    timestamp AS current_time,
-                    LAG(timestamp) OVER (ORDER BY timestamp) AS prev_time
-                FROM {table_name}
+                    CAST(timestamp AS BIGINT) AS current_time,
+                    LAG(CAST(timestamp AS BIGINT)) OVER (ORDER BY CAST(timestamp AS BIGINT)) AS prev_time
+                FROM "{table_name}"
             )
             SELECT 
                 prev_time AS gap_start, 

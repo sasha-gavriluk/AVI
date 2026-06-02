@@ -49,16 +49,17 @@ class ExplorerLogic(QObject):
         self._db_thread.start()
 
     def _get_databases_dict_sync(self, is_locked_callback=None) -> dict:
-        active_db_path = self.db_service.current_db_path
-        
-        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-        db_dir = os.path.join(base_dir, 'data', 'db')
+        from utils.PathManager import PathManager
+        db_dir = PathManager.get_user_data_dir()
         
         if not os.path.exists(db_dir):
             return {}
             
         dbs = [f for f in os.listdir(db_dir) if f.endswith('.duckdb')]
         databases_dict = {}
+        
+        from gui.logic.DuckDbService import DuckDbService
+        local_db = DuckDbService()
         
         for db in dbs:
             db_path = os.path.join(db_dir, db)
@@ -71,9 +72,9 @@ class ExplorerLogic(QObject):
                 continue
 
             try:
-                self.db_service.connect(db_path)
-                tables = self.db_service.get_tables()
-                self.db_service.disconnect()
+                local_db.connect(db_path)
+                tables = local_db.get_tables()
+                local_db.disconnect()
                 
                 databases_dict[db] = {
                     "path": db_path,
@@ -82,9 +83,6 @@ class ExplorerLogic(QObject):
             except Exception as e:
                 print(f"Не вдалося завантажити таблиці для {db}: {e}")
                 
-        if active_db_path and os.path.exists(active_db_path):
-            self.db_service.connect(active_db_path)
-            
         return databases_dict
 
     # ----------------------------------

@@ -44,12 +44,21 @@ class BacktestService:
             # Запуск на Test
             test_pf, test_wr, test_trades = self._eval_subset(strategy, test_df, dbm, f"{i}_test")
             
+            def safe_format_ts(val):
+                try:
+                    if pd.isna(val): return "Unknown"
+                    if isinstance(val, (int, float, str)) and str(val).isdigit():
+                        return pd.to_datetime(float(val), unit='ms').strftime('%Y-%m-%d')
+                    return pd.to_datetime(val).strftime('%Y-%m-%d')
+                except:
+                    return "Unknown"
+
             results.append({
                 "window": i + 1,
-                "train_start": pd.to_datetime(train_df['timestamp'].iloc[0], unit='ms').strftime('%Y-%m-%d'),
-                "train_end": pd.to_datetime(train_df['timestamp'].iloc[-1], unit='ms').strftime('%Y-%m-%d'),
-                "test_start": pd.to_datetime(test_df['timestamp'].iloc[0], unit='ms').strftime('%Y-%m-%d'),
-                "test_end": pd.to_datetime(test_df['timestamp'].iloc[-1], unit='ms').strftime('%Y-%m-%d'),
+                "train_start": safe_format_ts(train_df['timestamp'].iloc[0]) if not train_df.empty else "N/A",
+                "train_end": safe_format_ts(train_df['timestamp'].iloc[-1]) if not train_df.empty else "N/A",
+                "test_start": safe_format_ts(test_df['timestamp'].iloc[0]) if not test_df.empty else "N/A",
+                "test_end": safe_format_ts(test_df['timestamp'].iloc[-1]) if not test_df.empty else "N/A",
                 "train_pf": train_pf,
                 "train_wr": train_wr,
                 "train_trades": train_trades,

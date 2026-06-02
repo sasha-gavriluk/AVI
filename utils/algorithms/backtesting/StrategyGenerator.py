@@ -16,12 +16,14 @@ class StrategyGenerator:
     Може генерувати стратегії виключно на покупку (BUY) або виключно на продаж (SELL).
     """
     def __init__(self, rules_path=None, copilot=None):
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        from utils.PathManager import PathManager
+        user_data_dir = PathManager.get_user_data_dir()
+        
         # Гарантуємо, що файли конфігурації існують
-        Insurance.ensure_files_exist(base_dir)
+        Insurance.ensure_files_exist(user_data_dir)
         
         if rules_path is None:
-            self.rules_path = os.path.join(base_dir, 'data', 'config', 'rules.json')
+            self.rules_path = os.path.join(user_data_dir, 'data', 'config', 'rules.json')
         else:
             self.rules_path = rules_path
             

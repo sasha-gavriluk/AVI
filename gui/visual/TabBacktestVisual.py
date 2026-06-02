@@ -113,6 +113,11 @@ class TabBacktestVisual(QWidget):
         table_row.addWidget(QLabel("Актив:"))
         self.table_combo = QComboBox()
         table_row.addWidget(self.table_combo, stretch=1)
+        
+        table_row.addWidget(QLabel("ТФ:"))
+        self.timeframe_combo = QComboBox()
+        table_row.addWidget(self.timeframe_combo, stretch=1)
+        
         right_layout.addLayout(table_row)
         
         name_layout = QHBoxLayout()
@@ -137,7 +142,11 @@ class TabBacktestVisual(QWidget):
         
         wfv_layout = QHBoxLayout()
         self.btn_run_wfv = QPushButton("🔄 Walk-Forward Validation")
-        self.btn_run_wfv.setStyleSheet("background-color: #313244; color: #A6ADC8; padding: 8px; font-weight: bold;")
+        self.btn_run_wfv.setStyleSheet(
+            "QPushButton { background-color: #313244; color: #A6ADC8; padding: 8px; font-weight: bold; border: 1px solid #45475a; border-radius: 4px; } "
+            "QPushButton:hover { background-color: #45475a; color: #cdd6f4; }"
+            "QPushButton:pressed { background-color: #1e1e2e; }"
+        )
         wfv_layout.addWidget(self.btn_run_wfv)
         right_layout.addLayout(wfv_layout)
         
@@ -551,7 +560,8 @@ class TabBacktestVisual(QWidget):
             "   CORRECT:   entry = (rsi < 30) & (sma > close)\n"
             "   INCORRECT: entry = rsi < 30 & sma > close\n"
             "5. For crossovers: variable1.crosses_over(variable2) or variable1.crosses_under(variable2)\n"
-            "6. Your output MUST include `entry`, `exit`, and a `strategy` object.\n\n"
+            "6. You can OPTIONALLY specify TARGET_ASSETS or TARGET_TIMEFRAMES lists at the top of the file to restrict where the strategy runs.\n"
+            "7. Your output MUST include `entry`, `exit`, and a `strategy` object.\n\n"
             "=== WHAT EACH VARIABLE TYPE RETURNS ===\n"
             "- Indicator (e.g. sma, rsi, macd): returns a numeric Series. Compare with numbers or other Indicators.\n"
             "- Pattern (e.g. hammer, engulfing): returns True/False (1-sided) or 1/-1 (2-sided, 1=bullish, -1=bearish).\n"
@@ -560,6 +570,8 @@ class TabBacktestVisual(QWidget):
             f"{ai_indicators_list}\n"
             "=== EXAMPLE OUTPUT FORMAT ===\n"
             "from utils.rules_engine import Indicator, Pattern, Algorithm, Strategy\n"
+            "TARGET_ASSETS = ['BTC_USDT', 'EURUSD']  # Optional restriction\n"
+            "TARGET_TIMEFRAMES = ['15m', '1h']       # Optional restriction\n\n"
             "sma10 = Indicator('SMA_10')\n"
             "sma50 = Indicator('SMA_50')\n"
             "rsi = Indicator('RSI_14')\n"

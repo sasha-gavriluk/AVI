@@ -19,7 +19,8 @@ class GapAnalyzer:
         self._load_holidays()
 
     def _load_holidays(self):
-        config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'config', 'market_holidays.json')
+        from utils.PathManager import PathManager
+        config_path = PathManager.get_holidays_path()
         if os.path.exists(config_path):
             try:
                 with open(config_path, 'r', encoding='utf-8') as f:
