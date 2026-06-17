@@ -72,14 +72,9 @@ class BacktestService:
         return results
 
     def _eval_subset(self, strategy, subset_df, dbm, window_name):
-        temp_table = f"temp_wfv_data_{window_name}"
         res_table = f"temp_wfv_res_{window_name}"
         
-        # Записуємо зріз в тимчасову таблицю
-        dbm.conn.execute(f"DROP TABLE IF EXISTS {temp_table}")
-        dbm.conn.execute(f"CREATE TABLE {temp_table} AS SELECT * FROM subset_df")
-        
-        runner = MarketRunner(strategy=strategy, db_path=self.db_name, db_table_path=temp_table)
+        runner = MarketRunner(strategy=strategy, db_path=self.db_path)
         
         # Патчимо вивід
         import sys, io
@@ -87,7 +82,8 @@ class BacktestService:
         sys.stdout = io.StringIO()
         
         try:
-            trades_df = runner.run(result_table_name=res_table)
+            # Передаємо df напряму, вимикаємо збереження в БД для оптимізації
+            trades_df = runner.run(result_table_name=res_table, df=subset_df.copy(), save_to_db=False)
         except Exception as e:
             print(f"Помилка в MarketRunner: {e}")
             trades_df = None
@@ -106,8 +102,4 @@ class BacktestService:
             gross_loss = abs(trades_df[trades_df['Profit'] < 0]['Profit'].sum())
             pf = (gross_profit / gross_loss) if gross_loss > 0 else (gross_profit if gross_profit > 0 else 0)
             
-        # Прибираємо тимчасові таблиці
-        dbm.conn.execute(f"DROP TABLE IF EXISTS {temp_table}")
-        dbm.conn.execute(f"DROP TABLE IF EXISTS {res_table}")
-        
         return pf, wr, total_trades

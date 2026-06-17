@@ -12,6 +12,63 @@ class NonWheelDoubleSpinBox(QDoubleSpinBox):
 #==================================
 # UiElements
 #==================================
+from PyQt6.QtGui import QStandardItemModel, QStandardItem
+from PyQt6.QtCore import Qt, QEvent
+
+class CheckableComboBox(QComboBox):
+    def __init__(self):
+        super().__init__()
+        self.setEditable(True)
+        self.lineEdit().setReadOnly(True)
+        self.closeOnLineEditClick = False
+        self.view().viewport().installEventFilter(self)
+        self.model = QStandardItemModel(self)
+        self.setModel(self.model)
+        self._placeholder_text = "Виберіть активи..."
+        
+    def hidePopup(self):
+        super().hidePopup()
+        self.updateText()
+
+    def setPlaceholderText(self, text):
+        self._placeholder_text = text
+        self.updateText()
+
+    def updateText(self):
+        checked_items = self.checkedItems()
+        if not checked_items:
+            self.lineEdit().setText(self._placeholder_text)
+        else:
+            self.lineEdit().setText(", ".join(checked_items))
+
+    def eventFilter(self, widget, event):
+        if event.type() == QEvent.Type.MouseButtonRelease:
+            index = self.view().indexAt(event.pos())
+            item = self.model.item(index.row())
+            if item.checkState() == Qt.CheckState.Checked:
+                item.setCheckState(Qt.CheckState.Unchecked)
+            else:
+                item.setCheckState(Qt.CheckState.Checked)
+            self.updateText()
+            return True
+        return super().eventFilter(widget, event)
+
+    def addItem(self, text, data=None, checked=False):
+        item = QStandardItem(text)
+        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        item.setData(state, Qt.ItemDataRole.CheckStateRole)
+        self.model.appendRow(item)
+        self.updateText()
+
+    def checkedItems(self):
+        checked = []
+        for i in range(self.model.rowCount()):
+            item = self.model.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                checked.append(item.text())
+        return checked
+
 class TitleLabel(QLabel):
     # ----------------------------------
     # __init__, ініціалізація заголовку
@@ -192,12 +249,16 @@ class TradeDetailPanel(QWidget):
         
         self.lbl_id = QLabel("ID: -")
         self.lbl_dir = QLabel("Напрям: -")
+        self.lbl_entry_time = QLabel("Час Входу: -")
+        self.lbl_exit_time = QLabel("Час Виходу: -")
         self.lbl_profit = QLabel("Прибуток: -")
         self.lbl_profit.setStyleSheet("font-size: 14px; font-weight: bold;")
         self.lbl_duration = QLabel("Тривалість: -")
         
         vbox.addWidget(self.lbl_id)
         vbox.addWidget(self.lbl_dir)
+        vbox.addWidget(self.lbl_entry_time)
+        vbox.addWidget(self.lbl_exit_time)
         vbox.addWidget(self.lbl_profit)
         vbox.addWidget(self.lbl_duration)
         
@@ -218,9 +279,11 @@ class TradeDetailPanel(QWidget):
     # profit (float): Прибуток
     # duration (int): Тривалість у хвилинах
     # log_text (str): Текст логу
-    def set_trade_details(self, trade_id: str, direction: str, profit: float, duration: int, log_text: str):
+    def set_trade_details(self, trade_id: str, direction: str, entry_time: str, exit_time: str, profit: float, duration: int, log_text: str):
         self.lbl_id.setText(f"ID: {trade_id}")
         self.lbl_dir.setText(f"Напрям: {direction}")
+        self.lbl_entry_time.setText(f"Час Входу: {entry_time}")
+        self.lbl_exit_time.setText(f"Час Виходу: {exit_time}")
         color = "#A6E3A1" if profit > 0 else "#F38BA8"
         self.lbl_profit.setText(f"Прибуток: {profit:.2f}")
         self.lbl_profit.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {color};")
@@ -234,6 +297,8 @@ class TradeDetailPanel(QWidget):
     def clear(self):
         self.lbl_id.setText("ID: -")
         self.lbl_dir.setText("Напрям: -")
+        self.lbl_entry_time.setText("Час Входу: -")
+        self.lbl_exit_time.setText("Час Виходу: -")
         self.lbl_profit.setText("Прибуток: -")
         self.lbl_profit.setStyleSheet("font-size: 14px; font-weight: bold;")
         self.lbl_duration.setText("Тривалість: -")

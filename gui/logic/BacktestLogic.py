@@ -73,14 +73,14 @@ class StringCapture:
 
 class BacktestWorker(QThread):
     log_message = pyqtSignal(str)
-    finished_ok = pyqtSignal(str)
     finished_error = pyqtSignal(str)
+    finished_ok = pyqtSignal(str, str)
     
-    def __init__(self, code: str, db_path: str, table_name: str, result_table: str, copilot=None, parent=None):
+    def __init__(self, codes: dict, db_path: str, table_names: list, result_table: str, copilot=None, parent=None):
         super().__init__(parent)
-        self.code = code
+        self.codes = codes if isinstance(codes, dict) else {"custom_code": codes}
         self.db_path = db_path
-        self.table_name = table_name
+        self.table_names = table_names if isinstance(table_names, list) else [table_names]
         self.result_table = result_table
         self.copilot = copilot
         self.prediction_context = {}
@@ -91,82 +91,123 @@ class BacktestWorker(QThread):
             from utils.algorithms.backtesting.MarketRunner import MarketRunner
             db_name = os.path.basename(self.db_path)
             
-            local_ns = {
-                "Indicator": Indicator,
-                "Pattern": Pattern,
-                "Algorithm": Algorithm,
-                "Strategy": Strategy,
-            }
-            
-            if self.copilot:
-                self.log_message.emit("<b>🧠 Copilot аналізує стратегію...</b>")
-                report = self.copilot.analyze(self.code)
-                tf = self.table_name.split("_")[-1] if "_" in self.table_name else "1h"
-                indicators_used = [details['arg'] for var, details in report.get("variables", {}).items() if details.get('arg')]
-                prediction = self.copilot.predict_success_chance(self.table_name, tf, indicators_used)
-                
-                if prediction.get("status") == "exact_match":
-                    msg = f"Точний збіг (WR: {prediction.get('win_rate', 0):.1f}%, PF: {prediction.get('profit_factor', 0):.2f})"
-                elif prediction.get("status") == "similar_match":
-                    msg = "Аналіз на основі досвіду"
-                else:
-                    msg = prediction.get("message", "Невідомо")
-                    
-                self.log_message.emit(f"<b>📈 Прогноз AI:</b> <span style='color: #89B4FA'>{msg}</span>")
-                if prediction.get("summary"):
-                    self.log_message.emit(f"<pre style='color: #A6ADC8; font-size: 11px;'>{prediction.get('summary')}</pre>")
-                
-                self.log_message.emit("<b>🔄 Запуск бектесту...</b>")
-                
-                self.prediction_context = {
-                    "indicators_used": indicators_used,
-                    "prediction": prediction,
-                    "asset": self.table_name,
-                    "logic_snapshot": report.get("logic_snapshot", {})
-                }
-            
-            self.log_message.emit("Виконую код стратегії...")
-            exec(self.code, local_ns)
-            
-            strategy = local_ns.get("strategy")
-            if strategy is None:
-                self.finished_error.emit("Об'єкт 'strategy' не було створено після exec().\nПеревірте рядок: strategy = Strategy(...)")
-                return
-            
-            self.log_message.emit(f"Стратегію створено. Запускаю MarketRunner...")
-            self.log_message.emit(f"Таблиця з даними: '{self.table_name}'")
-            
-            runner = MarketRunner(
-                strategy=strategy,
-                db_path=db_name,
-                db_table_path=self.table_name,
-            )
-            
             old_stdout = sys.stdout
             sys.stdout = StringCapture(self.log_message)
+            
+            total_wins_overall = 0
+            total_trades_overall = 0
+            gross_profit_overall = 0.0
+            gross_loss_overall = 0.0
+            net_profit_overall = 0.0
+            first_table_name = None
+            
             try:
-                trades_df = runner.run(self.result_table)
-                total_trades = len(trades_df) if trades_df is not None else 0
-                if total_trades > 0:
-                    winning_trades = len(trades_df[trades_df['Profit'] > 0])
-                    win_rate = (winning_trades / total_trades) * 100.0
-                    gross_profit = trades_df[trades_df['Profit'] > 0]['Profit'].sum()
-                    gross_loss = abs(trades_df[trades_df['Profit'] < 0]['Profit'].sum())
-                    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (gross_profit if gross_profit > 0 else 0)
-                    total_profit = trades_df['Profit'].sum()
+                for strat_name, strat_code in self.codes.items():
+                    if len(self.codes) > 1:
+                        self.log_message.emit(f"<br><span style='color: #bf5af2; font-weight: bold;'>=== СТРАТЕГІЯ: {strat_name} ===</span>")
+                        
+                    local_ns = {
+                        "Indicator": Indicator,
+                        "Pattern": Pattern,
+                        "Algorithm": Algorithm,
+                        "Strategy": Strategy,
+                    }
                     
-                    self.log_message.emit(f"<br><span style='color: #32d74b; font-weight: bold;'>📊 ПІДСУМОК БЕКТЕСТУ:</span>")
-                    self.log_message.emit(f"<span style='color: #e5e5ea;'>&nbsp;&nbsp;• Всього угод: <b>{total_trades}</b></span>")
-                    self.log_message.emit(f"<span style='color: #e5e5ea;'>&nbsp;&nbsp;• Успішних: <b>{winning_trades} ({win_rate:.1f}%)</b></span>")
-                    profit_color = "#32d74b" if total_profit >= 0 else "#ff453a"
-                    self.log_message.emit(f"<span style='color: #e5e5ea;'>&nbsp;&nbsp;• Чистий прибуток: <b style='color: {profit_color};'>{total_profit:.2f}</b></span>")
-                    self.log_message.emit(f"<span style='color: #e5e5ea;'>&nbsp;&nbsp;• Profit Factor: <b>{profit_factor:.2f}</b></span><br>")
-                else:
-                    self.log_message.emit(f"<br><span style='color: #ff9f0a; font-weight: bold;'>📊 ПІДСУМОК БЕКТЕСТУ:</span> <span style='color: #e5e5ea;'>Угод не знайдено.</span><br>")
+                    if self.copilot:
+                        self.log_message.emit("<b>🧠 Copilot аналізує стратегію...</b>")
+                        report = self.copilot.analyze(strat_code)
+                        tf = self.table_names[0].split("_")[-1] if "_" in self.table_names[0] else "1h"
+                        indicators_used = [details['arg'] for var, details in report.get("variables", {}).items() if details.get('arg')]
+                        prediction = self.copilot.predict_success_chance(self.table_names[0], tf, indicators_used)
+                        
+                        if prediction.get("status") == "exact_match":
+                            msg = f"Точний збіг (WR: {prediction.get('win_rate', 0):.1f}%, PF: {prediction.get('profit_factor', 0):.2f})"
+                        elif prediction.get("status") == "similar_match":
+                            msg = "Аналіз на основі досвіду"
+                        else:
+                            msg = prediction.get("message", "Невідомо")
+                            
+                        self.log_message.emit(f"<b>📈 Прогноз AI:</b> <span style='color: #89B4FA'>{msg}</span>")
+                        if prediction.get("summary"):
+                            self.log_message.emit(f"<pre style='color: #A6ADC8; font-size: 11px;'>{prediction.get('summary')}</pre>")
+                        
+                        self.prediction_context = {
+                            "indicators_used": indicators_used,
+                            "prediction": prediction,
+                            "asset": self.table_names[0],
+                            "logic_snapshot": report.get("logic_snapshot", {})
+                        }
+                    
+                    self.log_message.emit("Виконую код стратегії...")
+                    try:
+                        exec(strat_code, local_ns)
+                    except Exception as e:
+                        self.log_message.emit(f"<span style='color: #ff453a;'>Помилка виконання коду: {e}</span>")
+                        continue
+                    
+                    strategy = local_ns.get("strategy")
+                    if strategy is None:
+                        self.log_message.emit("<span style='color: #ff453a;'>Об'єкт 'strategy' не було створено після exec(). Пропускаю.</span>")
+                        continue
+                    
+                    self.log_message.emit(f"Стратегію створено. Запускаю MarketRunner для {len(self.table_names)} активів...")
+                    
+                    for table_name in self.table_names:
+                        self.log_message.emit(f"<br><span style='color: #89B4FA;'>Тестування на {table_name}...</span>")
+                        runner = MarketRunner(
+                            strategy=strategy,
+                            db_path=db_name,
+                            db_table_path=table_name,
+                        )
+                        
+                        user_test_name = self.result_table.replace("backtest_", "")
+                        if strat_name == "custom_code":
+                            trade_table_name = f"backtest_{table_name}_{user_test_name}"
+                        else:
+                            trade_table_name = f"backtest_{table_name}_{strat_name}_{user_test_name}"
+                            
+                        if not first_table_name:
+                            first_table_name = trade_table_name
+                            
+                        trades_df = runner.run(trade_table_name)
+                        total_trades = len(trades_df) if trades_df is not None else 0
+                        
+                        if total_trades > 0:
+                            winning_trades = len(trades_df[trades_df['Profit'] > 0])
+                            win_rate = (winning_trades / total_trades) * 100.0
+                            gross_profit = trades_df[trades_df['Profit'] > 0]['Profit'].sum()
+                            gross_loss = abs(trades_df[trades_df['Profit'] < 0]['Profit'].sum())
+                            profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (gross_profit if gross_profit > 0 else 0)
+                            total_profit = trades_df['Profit'].sum()
+                            
+                            total_trades_overall += total_trades
+                            total_wins_overall += winning_trades
+                            gross_profit_overall += gross_profit
+                            gross_loss_overall += gross_loss
+                            net_profit_overall += total_profit
+                            
+                            self.log_message.emit(f"<span style='color: #e5e5ea;'>&nbsp;&nbsp;• Угод: <b>{total_trades}</b>, Успішних: <b>{win_rate:.1f}%</b>, PF: <b>{profit_factor:.2f}</b>, Net: <b>{total_profit:.2f}</b></span>")
+                        else:
+                            self.log_message.emit(f"<span style='color: #ff9f0a;'>&nbsp;&nbsp;• Угод не знайдено.</span>")
+                
+                if (len(self.table_names) > 1 or len(self.codes) > 1) and total_trades_overall > 0:
+                    overall_win_rate = (total_wins_overall / total_trades_overall) * 100.0
+                    overall_pf = (gross_profit_overall / gross_loss_overall) if gross_loss_overall > 0 else (gross_profit_overall if gross_profit_overall > 0 else 0)
+                    
+                    self.log_message.emit(f"<br><span style='color: #ffd60a; font-weight: bold;'>🏆 ЗАГАЛЬНИЙ ПОРТФЕЛЬНИЙ РЕЗУЛЬТАТ (Мульти-тест):</span>")
+                    self.log_message.emit(f"<span style='color: #e5e5ea;'>&nbsp;&nbsp;• Всього угод: <b>{total_trades_overall}</b></span>")
+                    self.log_message.emit(f"<span style='color: #e5e5ea;'>&nbsp;&nbsp;• Успішних: <b>{total_wins_overall} ({overall_win_rate:.1f}%)</b></span>")
+                    profit_color = "#32d74b" if net_profit_overall >= 0 else "#ff453a"
+                    self.log_message.emit(f"<span style='color: #e5e5ea;'>&nbsp;&nbsp;• Чистий прибуток: <b style='color: {profit_color};'>{net_profit_overall:.2f}</b></span>")
+                    self.log_message.emit(f"<span style='color: #e5e5ea;'>&nbsp;&nbsp;• Портфельний PF: <b>{overall_pf:.2f}</b></span><br>")
+                    
             finally:
                 sys.stdout = old_stdout
             
-            self.finished_ok.emit(self.result_table)
+            if not first_table_name:
+                first_table_name = f"backtest_{self.table_names[0]}_empty"
+            # Повертаємо назву першої таблиці для графіка
+            self.finished_ok.emit(first_table_name, self.table_names[0])
         except Exception as e:
             self.finished_error.emit(traceback.format_exc())
 
@@ -236,18 +277,38 @@ class AutoLearnWorker(QThread):
                 
                 test_name = f"auto_learn_{int(time.time())}_{i}"
                 from utils.PathManager import PathManager
+                import json
                 save_dir = os.path.join(PathManager.get_strategies_dir(), 'auto_learn')
                 os.makedirs(save_dir, exist_ok=True)
                 file_path = os.path.join(save_dir, f"{test_name}.py")
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(code_str)
                 
+                # Fetch settings to slice dataframe if necessary
+                df = None
+                tf_suffix = self.table_name.split("_")[-1] if "_" in self.table_name else "1h"
+                try:
+                    settings_path = PathManager.get_settings_path()
+                    if os.path.exists(settings_path):
+                        with open(settings_path, 'r', encoding='utf-8') as f:
+                            settings_data = json.load(f)
+                            limits = settings_data.get("copilot", {}).get("auto_learn_data_limits", {})
+                            tf_limits = limits.get(tf_suffix, {"all_data": True, "candles": 1000})
+                            
+                            if not tf_limits.get("all_data", True):
+                                candles_limit = tf_limits.get("candles", 1000)
+                                from utils.DataBaseManager import DataBaseManager
+                                db = DataBaseManager(db_path=self.db_path)
+                                df = db.get_data_by_number_range(self.table_name, candles_limit)
+                except Exception as e:
+                    self.log_message.emit(f"Помилка зчитування лімітів даних: {e}")
+                
                 runner = MarketRunner(strategy=strategy, db_path=db_name, db_table_path=self.table_name)
                 old_stdout = sys.stdout
                 sys.stdout = StringIO()
                 
                 try:
-                    trades_df = runner.run(test_name)
+                    trades_df = runner.run(test_name, df=df, save_to_db=False)
                     sys.stdout = old_stdout
                     
                     total_trades = len(trades_df) if trades_df is not None else 0
@@ -280,11 +341,28 @@ class AutoLearnWorker(QThread):
                 self.progress_update.emit(i+1, total_runs)
                 
             if current_run_results:
-                self.log_message.emit("<b>🔄 Аналіз та збереження Топ-5 стратегій...</b>")
                 from utils.PathManager import PathManager
-                top5_dir = os.path.join(PathManager.get_strategies_dir(), 'top5')
+                import json
+                
+                top_count = 5
+                min_trades_th = 10
+                min_pf_th = 1.0
+                try:
+                    settings_path = PathManager.get_settings_path()
+                    if os.path.exists(settings_path):
+                        with open(settings_path, 'r', encoding='utf-8') as f:
+                            settings_data = json.load(f)
+                            top_count = settings_data.get("copilot", {}).get("top_strategies_count", 5)
+                            min_trades_th = settings_data.get("copilot", {}).get("min_trades", 10)
+                            min_pf_th = settings_data.get("copilot", {}).get("min_profit_factor", 1.0)
+                except Exception:
+                    pass
+                    
+                self.log_message.emit(f"<b>🔄 Аналіз та збереження Топ-{top_count} стратегій...</b>")
+                top_folder_name = f'top{top_count}'
+                top5_dir = os.path.join(PathManager.get_strategies_dir(), top_folder_name)
                 os.makedirs(top5_dir, exist_ok=True)
-                metadata_file = os.path.join(top5_dir, 'top5_metadata.json')
+                metadata_file = os.path.join(top5_dir, f'{top_folder_name}_metadata.json')
                 
                 global_top5 = []
                 if os.path.exists(metadata_file):
@@ -298,13 +376,13 @@ class AutoLearnWorker(QThread):
                     pf = x.get('profit_factor', 0)
                     wr = x.get('win_rate', 0)
                     trades = x.get('total_trades', 0)
-                    if trades < 10 or pf < 1.0: return 0
-                    return pf * (wr / 100.0) * math.log10(trades)
+                    if trades < min_trades_th or pf < min_pf_th: return 0
+                    return pf * (wr / 100.0) * math.log10(trades) if trades > 0 else 0
                     
                 global_top5.extend(current_run_results)
-                global_top5 = [x for x in global_top5 if x.get('total_trades', 0) >= 10 and x.get('profit_factor', 0) >= 1.0]
+                global_top5 = [x for x in global_top5 if x.get('total_trades', 0) >= min_trades_th and x.get('profit_factor', 0) >= min_pf_th]
                 global_top5.sort(key=goldilocks_score, reverse=True)
-                global_top5 = global_top5[:5]
+                global_top5 = global_top5[:top_count]
                 
                 valid_basenames = []
                 for strat in global_top5:
@@ -329,9 +407,9 @@ class AutoLearnWorker(QThread):
                     json.dump(global_top5, f, indent=4, ensure_ascii=False)
                     
                 if global_top5:
-                    self.log_message.emit(f"🏆 Топ-5 оновлено: найвищий Profit Factor {global_top5[0]['profit_factor']:.2f} (Угод: {global_top5[0]['total_trades']})")
+                    self.log_message.emit(f"🏆 Топ-{top_count} оновлено: найвищий Profit Factor {global_top5[0]['profit_factor']:.2f} (Угод: {global_top5[0]['total_trades']})")
                 else:
-                    self.log_message.emit("ℹ️ Жодна стратегія не пройшла фільтр Топ-5 (потрібно PF > 1.0 та Угод >= 10)")
+                    self.log_message.emit(f"ℹ️ Жодна стратегія не пройшла фільтр Топ-{top_count} (потрібно PF >= {min_pf_th} та Угод >= {min_trades_th})")
                 
                 from utils.PathManager import PathManager
                 auto_learn_dir = os.path.join(PathManager.get_strategies_dir(), 'auto_learn')
@@ -355,56 +433,69 @@ class WfvWorker(QThread):
     log_message = pyqtSignal(str)
     finished = pyqtSignal()
     
-    def __init__(self, code: str, db_path: str, table_name: str, parent=None):
+    def __init__(self, codes: dict, db_path: str, table_names: list, parent=None):
         super().__init__(parent)
-        self.code = code
+        self.codes = codes
         self.db_path = db_path
-        self.table_name = table_name
+        self.table_names = table_names
         
     def run(self):
         try:
             from utils.rules_engine import Indicator, Pattern, Algorithm, Strategy
-            from core.services.backtest_service import BacktestService
-            
-            local_ns = {
-                "Indicator": Indicator, "Pattern": Pattern,
-                "Algorithm": Algorithm, "Strategy": Strategy,
-            }
-            exec(self.code, local_ns)
-            strategy = local_ns.get("strategy")
+            from utils.algorithms.backtesting.backtest_service import BacktestService
+            import pandas as pd
             
             service = BacktestService(self.db_path)
-            results = service.run_wfv(strategy, self.table_name, num_windows=5, train_ratio=0.7)
             
-            html = ["<div style='font-family: monospace; font-size: 13px;'>"]
-            html.append("<table style='width: 100%; text-align: left; border-collapse: collapse;'>")
-            html.append("<tr style='border-bottom: 1px solid #444;'><th>Вікно</th><th>Train PF</th><th>Test PF</th><th>Test WR</th><th>Robust?</th></tr>")
-            
-            total_robust = 0
-            for r in results:
-                window = r['window']
-                train_pf = r['train_pf']
-                test_pf = r['test_pf']
-                test_wr = r['test_wr']
-                robust = r['is_robust']
+            for strat_name, code in self.codes.items():
+                local_ns = {
+                    "Indicator": Indicator, "Pattern": Pattern,
+                    "Algorithm": Algorithm, "Strategy": Strategy,
+                }
                 
-                if robust:
-                    total_robust += 1
-                    rob_str = "<span style='color:#32d74b'>✅ Так</span>"
-                else:
-                    rob_str = "<span style='color:#ff453a'>❌ Ні</span>"
+                try:
+                    exec(code, local_ns)
+                    strategy = local_ns.get("strategy")
+                except Exception as e:
+                    self.log_message.emit(f"<div style='color: #ff453a'>Помилка коду {strat_name}: {e}</div>")
+                    continue
                     
-                html.append(f"<tr style='border-bottom: 1px solid #333;'>")
-                html.append(f"<td>{window}</td><td>{train_pf:.2f}</td><td>{test_pf:.2f}</td><td>{test_wr:.1f}%</td><td>{rob_str}</td>")
-                html.append(f"</tr>")
+                if strategy is None:
+                    continue
                 
-            html.append("</table>")
-            robustness_pct = (total_robust / len(results)) * 100 if results else 0
-            color = "#32d74b" if robustness_pct >= 60 else "#ff453a"
-            html.append(f"<br><span style='font-weight:bold; color:{color}'>Надійність: {robustness_pct:.1f}% ({total_robust}/{len(results)} вікон)</span>")
-            html.append("</div><br>")
-            
-            self.log_message.emit("".join(html))
+                for table_name in self.table_names:
+                    self.log_message.emit(f"<div style='color: #89B4FA; font-weight: bold;'><br>🔍 WFV Аналіз: {strat_name} на {table_name}</div>")
+                    results = service.run_wfv(strategy, table_name, num_windows=5, train_ratio=0.7)
+                    
+                    html = ["<div style='font-family: monospace; font-size: 13px; margin-bottom: 10px;'>"]
+                    html.append("<table style='width: 100%; text-align: left; border-collapse: collapse;'>")
+                    html.append("<tr style='border-bottom: 1px solid #444;'><th>Вікно</th><th>Train PF</th><th>Test PF</th><th>Test WR</th><th>Robust?</th></tr>")
+                    
+                    total_robust = 0
+                    for r in results:
+                        window = r['window']
+                        train_pf = r['train_pf']
+                        test_pf = r['test_pf']
+                        test_wr = r['test_wr']
+                        robust = r['is_robust']
+                        
+                        if robust:
+                            total_robust += 1
+                            rob_str = "<span style='color:#32d74b'>✅ Так</span>"
+                        else:
+                            rob_str = "<span style='color:#ff453a'>❌ Ні</span>"
+                            
+                        html.append(f"<tr style='border-bottom: 1px solid #333;'>")
+                        html.append(f"<td>{window}</td><td>{train_pf:.2f}</td><td>{test_pf:.2f}</td><td>{test_wr:.1f}%</td><td>{rob_str}</td>")
+                        html.append(f"</tr>")
+                        
+                    html.append("</table>")
+                    robustness_pct = (total_robust / len(results)) * 100 if results else 0
+                    color = "#32d74b" if robustness_pct >= 60 else "#ff453a"
+                    html.append(f"<br><span style='font-weight:bold; color:{color}'>Надійність: {robustness_pct:.1f}% ({total_robust}/{len(results)} вікон)</span>")
+                    html.append("</div>")
+                    
+                    self.log_message.emit("".join(html))
         except Exception as e:
             self.log_message.emit(f"<div style='color: #ff453a'>Помилка WFV: {traceback.format_exc()}</div>")
         finally:

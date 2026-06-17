@@ -128,17 +128,21 @@ class DownloaderWorker(QThread):
                             self.finished_ok.emit(total_loaded_candles)
                             return
 
-                        symbol_formatted = symbol.upper()
-                        if not symbol_formatted.startswith("C:"):
-                            symbol_formatted = f"C:{symbol_formatted}"
+                        from utils.SymbolManager import SymbolManager
+                        symbol_formatted = SymbolManager.format_for_massive_rest(symbol.upper())
 
                         print(f"\n📥 [MASSIVE] Початок завантаження {symbol_formatted} [{tf}] з {start_date_str} до {end_date_str}...")
                         
                         multiplier, tf_unit = self._parse_tf_for_massive(tf)
-                        symbol_clean = symbol_formatted.replace(":", "")[1:]
+                        
+                        # Отримуємо чистий символ для назви таблиці: BTC_USD (без X: чи C:)
+                        clean_sym = symbol.upper()
+                        if clean_sym.startswith("C:") or clean_sym.startswith("X:"):
+                            clean_sym = clean_sym[2:]
+                        
                         suffix_map = {"minute": "m", "hour": "h", "day": "d"}
                         suffix = f"{multiplier}{suffix_map.get(tf_unit, tf_unit)}"
-                        table_name = f"{symbol_clean}_{suffix}"
+                        table_name = f"{clean_sym}_{suffix}"
 
                         current_start = d_start
                         while current_start < d_end:
@@ -151,7 +155,8 @@ class DownloaderWorker(QThread):
                                 multiplier=multiplier,
                                 timeframe=tf_unit,
                                 start_date=current_start.strftime('%Y-%m-%d'),
-                                end_date=current_end.strftime('%Y-%m-%d')
+                                end_date=current_end.strftime('%Y-%m-%d'),
+                                internal_symbol=clean_sym
                             )
 
                             try:
@@ -198,7 +203,8 @@ class DownloaderWorker(QThread):
                 if total_range_ms <= 0: total_range_ms = 1
 
                 for symbol_raw in symbols_raw:
-                    symbol = self._normalize_symbol_for_ccxt(symbol_raw)
+                    from utils.SymbolManager import SymbolManager
+                    symbol = SymbolManager.format_for_ccxt(symbol_raw)
                     for tf in timeframes:
                         if not self.is_running:
                             print("❌ Завантаження зупинено.")
@@ -284,14 +290,7 @@ class DownloaderWorker(QThread):
     # ----------------------------------
     # Параметри:
     # symbol (str): Символ
-    def _normalize_symbol_for_ccxt(self, symbol: str) -> str:
-        symbol = symbol.strip().upper()
-        if "/" not in symbol:
-            for stable in ["USDT", "BUSD", "USDC", "USD", "BTC", "ETH"]:
-                if symbol.endswith(stable) and len(symbol) > len(stable):
-                    base = symbol[:-len(stable)]
-                    return f"{base}/{stable}"
-        return symbol
+
 
 #==================================
 # DownloaderLogic

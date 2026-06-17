@@ -184,27 +184,73 @@ class GuiBinder:
         
         data = logic.load_settings()
         tab.mode_combo.setCurrentText(data["trading_mode"].get("type", "Standard"))
-        tab.bo_payout_input.setValue(data["trading_mode"]["bo_payout_percent"])
-        tab.bo_bet_input.setValue(data["trading_mode"]["bo_bet_size"])
-        tab.bo_exp_input.setValue(data["trading_mode"]["bo_expiration_bars"])
         
+        # Standard Settings
+        tab.std_sizing_combo.setCurrentText(data["trading_mode"].get("standard_sizing_type", "Фіксована сума ($)"))
+        tab.std_sizing_value.setValue(data["trading_mode"].get("standard_sizing_value", 1000.0))
+        tab.std_commission.setValue(data["trading_mode"].get("standard_commission_percent", 0.1))
+        
+        # Futures Settings
+        tab.fut_sizing_combo.setCurrentText(data["trading_mode"].get("futures_sizing_type", "Фіксована маржа ($)"))
+        tab.fut_sizing_value.setValue(data["trading_mode"].get("futures_sizing_value", 100.0))
+        tab.fut_leverage.setValue(data["trading_mode"].get("futures_leverage", 10))
+        tab.fut_taker_fee.setValue(data["trading_mode"].get("futures_taker_fee", 0.05))
+        tab.fut_maker_fee.setValue(data["trading_mode"].get("futures_maker_fee", 0.02))
+        
+        # Binary Options Settings
+        tab.bo_payout_input.setValue(data["trading_mode"].get("bo_payout_percent", 80.0))
+        tab.bo_bet_input.setValue(data["trading_mode"].get("bo_bet_size", 10.0))
+        tab.bo_exp_input.setValue(data["trading_mode"].get("bo_expiration_bars", 1))
+        tab.bo_fixed_time_cb.setChecked(data["trading_mode"].get("bo_fixed_time_enabled", False))
+        tab.bo_fixed_time_input.setValue(data["trading_mode"].get("bo_fixed_time_minutes", 60))
+        tab.bo_fixed_time_input.setEnabled(tab.bo_fixed_time_cb.isChecked())
+        tab.bo_exp_input.setEnabled(not tab.bo_fixed_time_cb.isChecked())
+        
+        tab.initial_balance_input.setValue(data["risk_management"].get("initial_balance", 10000.0))
         tab.stop_loss_input.setValue(data["risk_management"]["stop_loss_percent"])
         tab.max_drawdown_input.setValue(data["risk_management"]["max_drawdown_session"])
         tab.daily_loss_input.setValue(data["risk_management"]["daily_loss_limit"])
         
         tab.half_life_input.setValue(data["copilot"]["half_life_days"])
         tab.min_score_input.setValue(data["copilot"]["min_score_for_best"])
-        tab.routine_interval_input.setValue(data["copilot"].get("routine_interval_minutes", 60))
         tab.update_threshold_input.setValue(data["copilot"].get("update_threshold_weight", 15.0))
+        tab.top_strategies_count_input.setValue(data["copilot"].get("top_strategies_count", 5))
+        tab.min_trades_input.setValue(data["copilot"].get("min_trades", 10))
+        mode_idx = 0 if data["copilot"].get("min_trades_mode", "Global") == "Global" else 1
+        tab.min_trades_mode.setCurrentIndex(mode_idx)
+        tab.min_trades_base_candles.setValue(data["copilot"].get("min_trades_base_candles", 1000))
+        tab.min_trades_tolerance.setValue(data["copilot"].get("min_trades_tolerance", 80))
+        tab.min_pf_input.setValue(data["copilot"].get("min_profit_factor", 1.0))
         tab.target_assets_input.setText(", ".join(data["copilot"].get("target_assets", [])))
         tab.target_timeframes_input.setText(", ".join(data["copilot"].get("target_timeframes", [])))
         
-        tab.active_strategies_list.clear()
-        tab.active_strategies_list.addItems(data["copilot"].get("active_strategies", []))
+        limit_data = data["copilot"].get("auto_learn_data_limits", {})
+        for tf, widgets in tab.auto_learn_limit_widgets.items():
+            saved = limit_data.get(tf, {"all_data": True, "candles": 1000})
+            widgets["all_data"].setChecked(saved.get("all_data", True))
+            widgets["candles"].setValue(saved.get("candles", 1000))
         
+        # New load logic for strategies tree
+        tree_data = data["copilot"].get("active_strategies_tree", {})
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QTreeWidgetItem
+        for i in range(tab.active_strategies_tree.topLevelItemCount()):
+            tf_item = tab.active_strategies_tree.topLevelItem(i)
+            tf = tf_item.data(0, Qt.ItemDataRole.UserRole)
+            tf_item.takeChildren()
+            strats = tree_data.get(tf, [])
+            for strat in strats:
+                child = QTreeWidgetItem([strat])
+                child.setData(0, Qt.ItemDataRole.UserRole, strat)
+                tf_item.addChild(child)
+            tf_item.setExpanded(True)
+        
+        mode = data.get("downloader", {}).get("update_mode", "polling")
+        tab.update_mode_combo.setCurrentIndex(0 if mode == "polling" else 1)
         tab.massive_free_tier_cb.setChecked(data.get("downloader", {}).get("massive_free_tier", True))
         tab.massive_requests_input.setValue(data.get("downloader", {}).get("massive_free_requests", 5))
         tab.massive_wait_input.setValue(data.get("downloader", {}).get("massive_free_wait_minutes", 3))
+        tab.massive_delay_input.setValue(data.get("downloader", {}).get("massive_api_delay_minutes", 15))
         # Ініціалізація активності полів
         tab.massive_requests_input.setEnabled(tab.massive_free_tier_cb.isChecked())
         tab.massive_wait_input.setEnabled(tab.massive_free_tier_cb.isChecked())
@@ -249,9 +295,22 @@ class GuiBinder:
                     "type": tab.mode_combo.currentText(),
                     "bo_payout_percent": tab.bo_payout_input.value(),
                     "bo_bet_size": tab.bo_bet_input.value(),
-                    "bo_expiration_bars": tab.bo_exp_input.value()
+                    "bo_expiration_bars": tab.bo_exp_input.value(),
+                    "bo_fixed_time_enabled": tab.bo_fixed_time_cb.isChecked(),
+                    "bo_fixed_time_minutes": tab.bo_fixed_time_input.value(),
+                    
+                    "standard_sizing_type": tab.std_sizing_combo.currentText(),
+                    "standard_sizing_value": tab.std_sizing_value.value(),
+                    "standard_commission_percent": tab.std_commission.value(),
+                    
+                    "futures_sizing_type": tab.fut_sizing_combo.currentText(),
+                    "futures_sizing_value": tab.fut_sizing_value.value(),
+                    "futures_leverage": tab.fut_leverage.value(),
+                    "futures_taker_fee": tab.fut_taker_fee.value(),
+                    "futures_maker_fee": tab.fut_maker_fee.value()
                 },
                 "risk_management": {
+                    "initial_balance": tab.initial_balance_input.value(),
                     "stop_loss_percent": tab.stop_loss_input.value(),
                     "max_drawdown_session": tab.max_drawdown_input.value(),
                     "daily_loss_limit": tab.daily_loss_input.value()
@@ -259,16 +318,36 @@ class GuiBinder:
                 "copilot": {
                     "half_life_days": tab.half_life_input.value(),
                     "min_score_for_best": tab.min_score_input.value(),
-                    "routine_interval_minutes": tab.routine_interval_input.value(),
                     "update_threshold_weight": tab.update_threshold_input.value(),
+                    "top_strategies_count": tab.top_strategies_count_input.value(),
+                    "min_trades": tab.min_trades_input.value(),
+                    "min_trades_mode": "Global" if tab.min_trades_mode.currentIndex() == 0 else "Window",
+                    "min_trades_base_candles": tab.min_trades_base_candles.value(),
+                    "min_trades_tolerance": tab.min_trades_tolerance.value(),
+                    "min_profit_factor": tab.min_pf_input.value(),
                     "target_assets": [s.strip() for s in tab.target_assets_input.text().split(',') if s.strip()],
                     "target_timeframes": [s.strip() for s in tab.target_timeframes_input.text().split(',') if s.strip()],
-                    "active_strategies": [tab.active_strategies_list.item(i).text() for i in range(tab.active_strategies_list.count())]
+                    "active_strategies_tree": {
+                        tab.active_strategies_tree.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole): [
+                            tab.active_strategies_tree.topLevelItem(i).child(j).data(0, Qt.ItemDataRole.UserRole)
+                            for j in range(tab.active_strategies_tree.topLevelItem(i).childCount())
+                        ]
+                        for i in range(tab.active_strategies_tree.topLevelItemCount())
+                    },
+                    "auto_learn_data_limits": {
+                        tf: {
+                            "all_data": widgets["all_data"].isChecked(),
+                            "candles": widgets["candles"].value()
+                        }
+                        for tf, widgets in tab.auto_learn_limit_widgets.items()
+                    }
                 },
                 "downloader": {
+                    "update_mode": "polling" if tab.update_mode_combo.currentIndex() == 0 else "websockets",
                     "massive_free_tier": tab.massive_free_tier_cb.isChecked(),
                     "massive_free_requests": tab.massive_requests_input.value(),
-                    "massive_free_wait_minutes": tab.massive_wait_input.value()
+                    "massive_free_wait_minutes": tab.massive_wait_input.value(),
+                    "massive_api_delay_minutes": tab.massive_delay_input.value()
                 },
                 "notifications": {
                     "telegram_enabled": tab.cb_telegram_enabled.isChecked()
@@ -288,21 +367,51 @@ class GuiBinder:
             logic.save_api_keys(new_keys)
 
         tab.mode_combo.currentTextChanged.connect(save_from_ui)
+        tab.std_sizing_combo.currentTextChanged.connect(save_from_ui)
+        tab.std_sizing_value.valueChanged.connect(save_from_ui)
+        tab.std_commission.valueChanged.connect(save_from_ui)
+        
+        tab.fut_sizing_combo.currentTextChanged.connect(save_from_ui)
+        tab.fut_sizing_value.valueChanged.connect(save_from_ui)
+        tab.fut_leverage.valueChanged.connect(save_from_ui)
+        tab.fut_taker_fee.valueChanged.connect(save_from_ui)
+        tab.fut_maker_fee.valueChanged.connect(save_from_ui)
+
         tab.bo_payout_input.valueChanged.connect(save_from_ui)
         tab.bo_bet_input.valueChanged.connect(save_from_ui)
         tab.bo_exp_input.valueChanged.connect(save_from_ui)
+        
+        def on_fixed_time_toggled(checked):
+            tab.bo_fixed_time_input.setEnabled(checked)
+            tab.bo_exp_input.setEnabled(not checked)
+            save_from_ui()
+            
+        tab.bo_fixed_time_cb.toggled.connect(on_fixed_time_toggled)
+        tab.bo_fixed_time_input.valueChanged.connect(save_from_ui)
+        tab.initial_balance_input.valueChanged.connect(save_from_ui)
         tab.stop_loss_input.valueChanged.connect(save_from_ui)
         tab.max_drawdown_input.valueChanged.connect(save_from_ui)
         tab.daily_loss_input.valueChanged.connect(save_from_ui)
         tab.half_life_input.valueChanged.connect(save_from_ui)
         tab.min_score_input.valueChanged.connect(save_from_ui)
-        tab.routine_interval_input.valueChanged.connect(save_from_ui)
         tab.update_threshold_input.valueChanged.connect(save_from_ui)
+        tab.top_strategies_count_input.valueChanged.connect(save_from_ui)
+        tab.min_trades_input.valueChanged.connect(save_from_ui)
+        tab.min_trades_mode.currentIndexChanged.connect(save_from_ui)
+        tab.min_trades_base_candles.valueChanged.connect(save_from_ui)
+        tab.min_trades_tolerance.valueChanged.connect(save_from_ui)
+        tab.min_pf_input.valueChanged.connect(save_from_ui)
         tab.target_assets_input.textChanged.connect(save_from_ui)
         tab.target_timeframes_input.textChanged.connect(save_from_ui)
+        
+        for tf, widgets in tab.auto_learn_limit_widgets.items():
+            widgets["all_data"].toggled.connect(save_from_ui)
+            widgets["candles"].valueChanged.connect(save_from_ui)
+            
         tab.massive_free_tier_cb.stateChanged.connect(save_from_ui)
         tab.massive_requests_input.valueChanged.connect(save_from_ui)
         tab.massive_wait_input.valueChanged.connect(save_from_ui)
+        tab.massive_delay_input.valueChanged.connect(save_from_ui)
         tab.bybit_key_input.textChanged.connect(save_from_ui)
         tab.bybit_secret_input.textChanged.connect(save_from_ui)
         tab.binance_key_input.textChanged.connect(save_from_ui)
@@ -314,7 +423,7 @@ class GuiBinder:
         
         def test_telegram():
             save_from_ui()
-            from core.services.notification_service import TelegramNotifier
+            from utils.notification_service import TelegramNotifier
             notifier = TelegramNotifier()
             from PyQt6.QtWidgets import QMessageBox
             if notifier.send_message("✅ Це тестове повідомлення з платформи AVI!"):
@@ -326,24 +435,44 @@ class GuiBinder:
         tab.btn_instruction.clicked.connect(tab.show_telegram_instruction)
         
         def add_strategy():
-            from PyQt6.QtWidgets import QFileDialog
+            from PyQt6.QtWidgets import QFileDialog, QMessageBox
             import os
             from utils.PathManager import PathManager
+            from PyQt6.QtCore import Qt
+            from PyQt6.QtWidgets import QTreeWidgetItem
             
+            selected_items = tab.active_strategies_tree.selectedItems()
+            if not selected_items:
+                QMessageBox.warning(tab, "Увага", "Спочатку виділіть таймфрейм (наприклад, 1m) куди додати стратегію.")
+                return
+                
+            target_item = selected_items[0]
+            # Якщо вибрано стратегію, беремо її батька (таймфрейм)
+            if target_item.parent():
+                target_item = target_item.parent()
+                
             start_dir = PathManager.get_strategies_dir()
             os.makedirs(start_dir, exist_ok=True)
-            files, _ = QFileDialog.getOpenFileNames(tab, "Оберіть стратегії", start_dir, "Python Files (*.py)")
+            files, _ = QFileDialog.getOpenFileNames(tab, f"Оберіть стратегії для {target_item.data(0, Qt.ItemDataRole.UserRole)}", start_dir, "Python Files (*.py)")
             if files:
+                existing_children = [target_item.child(i).data(0, Qt.ItemDataRole.UserRole) for i in range(target_item.childCount())]
                 for f in files:
                     rel = os.path.relpath(f, PathManager.get_user_data_dir())
-                    items = [tab.active_strategies_list.item(i).text() for i in range(tab.active_strategies_list.count())]
-                    if rel not in items:
-                        tab.active_strategies_list.addItem(rel)
+                    if rel not in existing_children:
+                        child = QTreeWidgetItem([rel])
+                        child.setData(0, Qt.ItemDataRole.UserRole, rel)
+                        target_item.addChild(child)
+                target_item.setExpanded(True)
                 save_from_ui()
                 
         def remove_strategy():
-            for item in tab.active_strategies_list.selectedItems():
-                tab.active_strategies_list.takeItem(tab.active_strategies_list.row(item))
+            selected_items = tab.active_strategies_tree.selectedItems()
+            if not selected_items: return
+            item = selected_items[0]
+            # Не можна видалити кореневий вузол таймфрейму
+            if not item.parent(): return
+            
+            item.parent().removeChild(item)
             save_from_ui()
             
         tab.btn_add_strategy.clicked.connect(add_strategy)
@@ -374,7 +503,9 @@ class GuiBinder:
                 if widget: widget.deleteLater()
                     
             is_massive = tab.radio_massive.isChecked()
-            top_presets = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"] if is_massive else ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]
+            is_crypto_mode = not is_massive or tab.massive_market_combo.currentIndex() == 1
+            
+            top_presets = ["BTC_USDT", "ETH_USDT", "SOL_USDT", "XRP_USDT"] if is_crypto_mode else ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]
             
             for p in top_presets:
                 btn = QPushButton(p)
@@ -383,14 +514,14 @@ class GuiBinder:
                 tab.presets_row.addWidget(btn)
                 
             all_presets = [
+                "BTC_USDT", "ETH_USDT", "SOL_USDT", "XRP_USDT", "ADA_USDT", "AVAX_USDT", 
+                "DOT_USDT", "DOGE_USDT", "SHIB_USDT", "LINK_USDT", "LTC_USDT", "UNI_USDT", 
+                "NEAR_USDT", "FIL_USDT", "ATOM_USDT", "ICP_USDT", "APT_USDT", "OP_USDT", 
+                "ARB_USDT", "INJ_USDT", "BTC_USD", "ETH_USD", "SOL_USD"
+            ] if is_crypto_mode else [
                 "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD", 
                 "EURGBP", "EURJPY", "GBPJPY", "XAUUSD", "XAGUSD", "SPX500", "NAS100", 
-                "US30", "GER30", "UK100", "BTCUSD", "ETHUSD", "SOLUSD"
-            ] if is_massive else [
-                "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "AVAXUSDT", 
-                "DOTUSDT", "DOGEUSDT", "SHIBUSDT", "LINKUSDT", "LTCUSDT", "UNIUSDT", 
-                "NEARUSDT", "FILUSDT", "ATOMUSDT", "ICPUSDT", "APTUSDT", "OPUSDT", 
-                "ARBUSDT", "INJUSDT"
+                "US30", "GER30", "UK100"
             ]
             
             combo = QComboBox()
@@ -409,15 +540,21 @@ class GuiBinder:
         def on_source_changed():
             is_massive = tab.radio_massive.isChecked()
             tab.exchange_group.setEnabled(not is_massive)
+            tab.massive_market_combo.setEnabled(is_massive)
+            
             if is_massive:
-                tab.symbols_input.setText("EURUSD, GBPUSD")
                 tab.exchange_group.setTitle("Вибір Біржі 🔒 (Недоступно для Massive)")
+                if tab.massive_market_combo.currentIndex() == 0:
+                    tab.symbols_input.setText("EURUSD, GBPUSD")
+                else:
+                    tab.symbols_input.setText("BTC_USD, ETH_USD")
             else:
-                tab.symbols_input.setText("BTCUSDT, ETHUSDT")
                 tab.exchange_group.setTitle("Вибір Біржі")
+                tab.symbols_input.setText("BTC_USDT, ETH_USDT")
             update_symbol_presets()
 
         tab.radio_massive.toggled.connect(on_source_changed)
+        tab.massive_market_combo.currentIndexChanged.connect(on_source_changed)
         update_symbol_presets()
 
         quick_times = [("7д", -7), ("1м", -30), ("3м", -90), ("1р", -365)]
@@ -599,11 +736,12 @@ class GuiBinder:
                         
                     t_dict = {
                         'entry_time': entry_time.strftime("%Y-%m-%d %H:%M:%S"),
+                        'exit_time': exit_time.strftime("%Y-%m-%d %H:%M:%S") if pd.notna(exit_time) else "-",
                         'type': str(trade.get('TradeType', '')).upper(),
                         'status': 'CLOSED' if pd.notna(exit_time) else 'OPEN',
                         'pnl': float(trade.get('Profit', 0.0)) if pd.notna(trade.get('Profit')) else 0.0,
                         'id': str(trade.get('TradeNumber', '')),
-                        'duration': str(dur)
+                        'duration': int(dur / 60000)
                     }
                     trades_list.append(t_dict)
                     
@@ -647,14 +785,25 @@ class GuiBinder:
             trade = logic.find_nearest_trade(click_time)
             if trade is not None:
                 dur_m = int((trade['ExitTimestamp'] - trade['EntryTimestamp']) / 60000)
+                
+                entry_time_str = pd.to_datetime(trade['EntryTimestamp'], unit='ms').strftime("%Y-%m-%d %H:%M:%S")
+                exit_time_val = trade.get('ExitTimestamp')
+                if pd.notna(exit_time_val) and exit_time_val > 0:
+                    exit_time_str = pd.to_datetime(exit_time_val, unit='ms').strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    exit_time_str = "-"
+                    
                 tab.detail_panel.set_trade_details(
-                    str(trade.get('TradeID', '-')),
-                    str(trade.get('Direction', '-')),
+                    str(trade.get('TradeNumber', '-')),
+                    str(trade.get('TradeType', '-')).upper(),
+                    entry_time_str,
+                    exit_time_str,
                     float(trade.get('Profit', 0)),
                     dur_m,
                     str(trade.get('Log', ''))
                 )
                 tab.detail_panel.show()
+                tab.right_panel.show()
             else:
                 tab.detail_panel.hide()
                 
@@ -662,11 +811,20 @@ class GuiBinder:
         tab.chart_clicked.connect(on_chart_clicked)
         
         def on_trade_selected_from_table(trade_dict):
-            tab.detail_panel.lbl_id.setText(f"ID: {trade_dict.get('id', '-')}")
-            tab.detail_panel.lbl_dir.setText(f"Напрям: {trade_dict.get('type', '-')}")
-            tab.detail_panel.lbl_profit.setText(f"Прибуток: {trade_dict.get('pnl', 0.0):.4f}")
-            color = "#A6E3A1" if float(trade_dict.get('pnl', 0.0)) > 0 else "#F38BA8"
-            tab.detail_panel.lbl_profit.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {color};")
+            e_t = trade_dict.get('entry_time', '-')
+            if isinstance(e_t, pd.Timestamp): e_t = e_t.strftime("%Y-%m-%d %H:%M:%S")
+            x_t = trade_dict.get('exit_time', '-')
+            if isinstance(x_t, pd.Timestamp): x_t = x_t.strftime("%Y-%m-%d %H:%M:%S")
+            
+            tab.detail_panel.set_trade_details(
+                str(trade_dict.get('id', '-')),
+                str(trade_dict.get('type', '-')),
+                str(e_t),
+                str(x_t),
+                float(trade_dict.get('pnl', 0.0)),
+                int(trade_dict.get('duration', 0)) if str(trade_dict.get('duration', '0')).replace('.','',1).isdigit() else 0,
+                "Угода вибрана з таблиці"
+            )
             tab.detail_panel.lbl_duration.setText(f"Статус: {trade_dict.get('status', '-')}")
             tab.detail_panel.show()
             tab.right_panel.show()
@@ -736,6 +894,45 @@ class GuiBinder:
 
         tab.sim_settings_action.triggered.connect(on_sim_settings)
         tab.sim_toggle_action.triggered.connect(on_sim_toggle)
+        
+        def on_screenshot_requested():
+            text = ""
+            if getattr(tab, '_current_asset_nice', None) and getattr(tab, '_current_tf', None):
+                text = f"{tab._current_asset_nice}, {tab._current_tf}"
+                
+            pixmap = tab.grab()
+            if text:
+                from PyQt6.QtGui import QPainter, QFont, QColor
+                from PyQt6.QtCore import Qt
+                painter = QPainter(pixmap)
+                font = QFont("Arial", 26, QFont.Weight.Bold)
+                painter.setFont(font)
+                
+                # Малюємо тінь тексту для контрасту
+                painter.setPen(QColor(0, 0, 0, 180))
+                painter.drawText(22, 62, text)
+                
+                # Малюємо основний текст
+                painter.setPen(QColor(255, 255, 255, 230))
+                painter.drawText(20, 60, text)
+                
+                painter.end()
+                
+            from PyQt6.QtWidgets import QFileDialog, QMessageBox
+            import os
+            from utils.PathManager import PathManager
+            
+            safe_text = text.replace(' ', '_').replace(',', '').replace('/', '_') if text else "chart"
+            default_name = f"screenshot_{safe_text}.png"
+            save_dir = os.path.join(PathManager.get_user_data_dir(), "screenshots")
+            os.makedirs(save_dir, exist_ok=True)
+            
+            path, _ = QFileDialog.getSaveFileName(tab, "Зберегти скріншот", os.path.join(save_dir, default_name), "Images (*.png *.jpg)")
+            if path:
+                pixmap.save(path)
+                QMessageBox.information(tab, "Успіх", f"Скріншот успішно збережено у:\n{path}")
+                
+        tab.screenshot_requested.connect(on_screenshot_requested)
         
         logic.sim_trades_updated.connect(tab.sim_panel.update_trades)
         
@@ -883,13 +1080,20 @@ class GuiBinder:
             tab._backtest_grouped = grouped_assets
             
             for asset_nice in sorted(grouped_assets.keys()):
-                tab.table_combo.addItem(asset_nice)
+                tab.table_combo.addItem(asset_nice, checked=False)
             tab.table_combo.blockSignals(False)
             on_asset_changed()
                 
         def on_asset_changed():
-            asset_nice = tab.table_combo.currentText()
-            if not asset_nice or not hasattr(tab, '_backtest_grouped') or asset_nice not in tab._backtest_grouped:
+            checked = tab.table_combo.checkedItems()
+            if not checked:
+                asset_nice = tab.table_combo.currentText()
+                if not asset_nice or asset_nice not in getattr(tab, '_backtest_grouped', {}):
+                    return
+            else:
+                asset_nice = checked[0]
+                
+            if not hasattr(tab, '_backtest_grouped') or asset_nice not in tab._backtest_grouped:
                 return
             
             tab.timeframe_combo.blockSignals(True)
@@ -911,8 +1115,25 @@ class GuiBinder:
         
         from utils.PathManager import PathManager
         strat_dir = PathManager.get_strategies_dir()
-        tab.btn_save.clicked.connect(lambda: tab.save_strategy(strat_dir))
+        
+        def refresh_strategies_combo():
+            tab.strat_combo.blockSignals(True)
+            tab.strat_combo.clear()
+            tab.strat_combo.blockSignals(False)
+            tab._strategies_map = {}
+            for root, dirs, files in os.walk(strat_dir):
+                for file in files:
+                    if file.endswith('.py') and not file.startswith('__'):
+                        rel_path = os.path.relpath(os.path.join(root, file), strat_dir)
+                        rel_path = rel_path.replace("\\", "/")
+                        tab.strat_combo.addItem(rel_path, checked=False)
+                        tab._strategies_map[rel_path] = os.path.join(root, file)
+                        
+        refresh_strategies_combo()
+        
+        tab.btn_save.clicked.connect(lambda: [tab.save_strategy(strat_dir), refresh_strategies_combo()])
         tab.btn_load.clicked.connect(lambda: tab.load_strategy(strat_dir, logic.copilot))
+        tab.btn_delete.clicked.connect(lambda: [tab.delete_strategy(strat_dir), refresh_strategies_combo()])
         tab.btn_info.clicked.connect(tab.show_help_dialog)
         
         def run_backtest():
@@ -920,41 +1141,72 @@ class GuiBinder:
             tab.safe_append_html("<div style='font-family: monospace; font-size: 13px; line-height: 1.4; margin-bottom: 10px;'><p style='color: #0a84ff; font-weight: bold; margin-bottom: 5px;'>🚀 ЗАПУСК БЕКТЕСТУ</p><hr style='border: 0; border-top: 1px solid #444; margin-top: 2px; margin-bottom: 8px;'/></div>")
             
             db_name = "main.duckdb"
-            asset_nice = tab.table_combo.currentText()
+            checked_assets = tab.table_combo.checkedItems()
             tf = tab.timeframe_combo.currentText()
-            if not asset_nice or not tf or not hasattr(tab, '_backtest_grouped'):
-                tab.safe_append_html("<div style='color: #ff453a; font-family: monospace; font-weight: bold;'>❗ Оберіть Актив!</div><br>")
-                return
-            table_name = tab._backtest_grouped[asset_nice][tf]
+            
+            if not checked_assets:
+                if hasattr(tab, '_backtest_grouped') and len(tab._backtest_grouped) > 0:
+                    # Якщо нічого не обрано, беремо перший доступний актив
+                    checked_assets = [list(tab._backtest_grouped.keys())[0]]
+                else:
+                    tab.safe_append_html("<div style='color: #ff453a; font-family: monospace; font-weight: bold;'>❗ Оберіть хоча б один Актив!</div><br>")
+                    return
+                    
+            if not tf and hasattr(tab, '_backtest_grouped') and tab._backtest_grouped.get(checked_assets[0]):
+                tf = list(tab._backtest_grouped[checked_assets[0]].keys())[0]
                 
-            code = tab.code_editor.toPlainText()
-            if "strategy = Strategy(" not in code:
-                tab.safe_append_html("<div style='color: #ff453a; font-family: monospace; font-weight: bold;'>❗ У коді редактора відсутній об'єкт Strategy!</div><br>")
+            if not tf or not hasattr(tab, '_backtest_grouped'):
                 return
+                
+            table_names = []
+            for asset in checked_assets:
+                if asset in tab._backtest_grouped and tf in tab._backtest_grouped[asset]:
+                    table_names.append(tab._backtest_grouped[asset][tf])
+                    
+            if not table_names: return
+                
+            checked_strats = tab.strat_combo.checkedItems()
+            codes = {}
+            
+            if checked_strats:
+                for strat_name in checked_strats:
+                    path = tab._strategies_map.get(strat_name)
+                    if path and os.path.exists(path):
+                        with open(path, 'r', encoding='utf-8') as f:
+                            codes[strat_name.replace('.py', '').replace('/', '_')] = f.read()
+            else:
+                code = tab.code_editor.toPlainText()
+                if "strategy = Strategy(" not in code:
+                    tab.safe_append_html("<div style='color: #ff453a; font-family: monospace; font-weight: bold;'>❗ У коді редактора відсутній об'єкт Strategy!</div><br>")
+                    return
+                codes["custom_code"] = code
                 
             user_test_name = tab.test_name_input.text().strip()
             if not user_test_name:
                 user_test_name = f"test_{int(time.time())}"
                 tab.test_name_input.setText(user_test_name)
-            test_name = f"backtest_{table_name}_{user_test_name}"
+            test_name = f"backtest_{user_test_name}"
             
             tab.btn_run.setEnabled(False)
             tab.btn_run.setText("⏳ Розраховується...")
             tab.btn_show_chart.setEnabled(False)
             
-            tab.safe_append_html(f"<div style='font-family: monospace; font-size: 13px; color: #e5e5ea;'><span style='color: #30d158; font-weight: bold;'>{db_name}</span> | <span style='color: #64d2ff; font-weight: bold;'>{table_name}</span> | <span style='color: #ffd60a; font-weight: bold;'>{test_name}</span></div>")
+            assets_str = ", ".join(checked_assets)
+            strats_str = ", ".join(codes.keys())
+            tab.safe_append_html(f"<div style='font-family: monospace; font-size: 13px; color: #e5e5ea;'><span style='color: #30d158; font-weight: bold;'>{db_name}</span> | <span style='color: #64d2ff; font-weight: bold;'>{assets_str}</span> | <span style='color: #ffd60a; font-weight: bold;'>{strats_str}</span> | <span style='color: #ff9f0a; font-weight: bold;'>{test_name}</span></div>")
             
-            tab._worker = BacktestWorker(code, "main.duckdb", table_name, test_name, copilot=logic.copilot, parent=tab)
-            tab._worker.log_message.connect(lambda m: tab.safe_append_html(f"<div style='color: #e5e5ea; font-family: monospace; font-size: 13px;'>{m}</div><br>"))
-            tab._worker.finished_ok.connect(lambda t: on_backtest_done(t, tab._worker.prediction_context))
+            tab._worker = BacktestWorker(codes, "main.duckdb", table_names, test_name, copilot=logic.copilot, parent=tab)
+            tab._worker.log_message.connect(lambda m: tab.safe_append_html(f"<div style='color: #e5e5ea; font-family: monospace; font-size: 13px;'>{m}</div>"))
+            tab._worker.finished_ok.connect(lambda t, a: on_backtest_done(t, a, tab._worker.prediction_context))
             tab._worker.finished_error.connect(lambda e: on_backtest_error(e))
             tab._worker.start()
             
-        def on_backtest_done(table_name, prediction_context):
+        def on_backtest_done(table_name, asset_name, prediction_context):
             tab.safe_append_html(f"<div style='font-family: monospace; font-size: 13px;'><hr style='border: 0; border-top: 1px solid #444;'/><span style='color: #32d74b; font-weight: bold;'>✅ Бектест завершено!</span><br><span style='color: #8e8e93;'>Результати збережено в таблицю:</span> <span style='color: #64d2ff; font-weight: bold;'>{table_name}</span></div>")
             tab.btn_run.setEnabled(True)
             tab.btn_run.setText("▶ Розрахувати")
             tab.last_table_name = table_name
+            tab.last_asset_name = asset_name
             tab.btn_show_chart.setEnabled(True)
             
             if prediction_context:
@@ -979,7 +1231,8 @@ class GuiBinder:
             
         def show_chart():
             table = getattr(tab, "last_table_name", None)
-            if table: tab.request_show_chart.emit("main.duckdb", table)
+            asset = getattr(tab, "last_asset_name", None)
+            if table and asset: tab.request_show_chart.emit("main.duckdb", table, asset)
             
         tab.btn_run.clicked.connect(run_backtest)
         tab.btn_show_chart.clicked.connect(show_chart)
@@ -992,9 +1245,22 @@ class GuiBinder:
                 tab.btn_auto_learn.setEnabled(False)
                 return
                 
-            asset_nice = tab.table_combo.currentText()
+            checked_assets = tab.table_combo.checkedItems()
+            if not checked_assets:
+                if hasattr(tab, '_backtest_grouped') and len(tab._backtest_grouped) > 0:
+                    # Якщо нічого не обрано, беремо перший доступний актив
+                    checked_assets = [list(tab._backtest_grouped.keys())[0]]
+                else:
+                    tab.safe_append_html("<div style='color: #ff453a; font-weight: bold;'>❗ Оберіть хоча б один Актив для Авто-навчання!</div><br>")
+                    return
+            
+            # Для Auto Learn беремо тільки перший вибраний актив як основний для генерації (оскільки він сам мультитестує)
+            asset_nice = checked_assets[0]
             tf = tab.timeframe_combo.currentText()
-            table_name = tab._backtest_grouped[asset_nice][tf]
+            if not tf and tab._backtest_grouped.get(asset_nice):
+                tf = list(tab._backtest_grouped[asset_nice].keys())[0]
+                
+            table_name = tab._backtest_grouped[asset_nice].get(tf)
             if not table_name: return
             
             tab.log_output.clear()
@@ -1023,18 +1289,52 @@ class GuiBinder:
         # Підключення WFV
         def on_wfv_clicked():
             tab.log_output.clear()
-            code = tab.code_editor.toPlainText()
-            if "strategy = Strategy(" not in code: return
-            asset_nice = tab.table_combo.currentText()
-            tf = tab.timeframe_combo.currentText()
-            table_name = tab._backtest_grouped[asset_nice][tf]
-            if not table_name: return
             
-            tab.safe_append_html(f"<div style='color: #A6ADC8; font-family: monospace; font-weight: bold;'>🔄 Запуск WFV для {table_name}...</div><br>")
+            # Отримуємо таблиці
+            checked_assets = tab.table_combo.checkedItems()
+            tf = tab.timeframe_combo.currentText()
+            
+            if not checked_assets:
+                if hasattr(tab, '_backtest_grouped') and len(tab._backtest_grouped) > 0:
+                    checked_assets = [list(tab._backtest_grouped.keys())[0]]
+                else:
+                    tab.safe_append_html("<div style='color: #ff453a; font-weight: bold;'>❗ Оберіть хоча б один Актив!</div><br>")
+                    return
+            
+            if not tf and hasattr(tab, '_backtest_grouped') and tab._backtest_grouped.get(checked_assets[0]):
+                tf = list(tab._backtest_grouped[checked_assets[0]].keys())[0]
+                
+            table_names = []
+            for asset in checked_assets:
+                if asset in tab._backtest_grouped and tf in tab._backtest_grouped[asset]:
+                    table_names.append(tab._backtest_grouped[asset][tf])
+                    
+            if not table_names: return
+            
+            # Отримуємо коди стратегій
+            checked_strats = tab.strat_combo.checkedItems()
+            codes = {}
+            if checked_strats:
+                for strat_name in checked_strats:
+                    path = tab._strategies_map.get(strat_name)
+                    if path and os.path.exists(path):
+                        with open(path, 'r', encoding='utf-8') as f:
+                            codes[strat_name.replace('.py', '').replace('/', '_')] = f.read()
+            else:
+                code = tab.code_editor.toPlainText()
+                if "strategy = Strategy(" not in code:
+                    tab.safe_append_html("<div style='color: #ff453a; font-weight: bold;'>❗ У коді редактора відсутній об'єкт Strategy!</div><br>")
+                    return
+                codes["custom_code"] = code
+
+            assets_str = ", ".join(checked_assets)
+            strats_str = ", ".join(codes.keys())
+            tab.safe_append_html(f"<div style='color: #A6ADC8; font-family: monospace; font-weight: bold;'>🔄 Запуск WFV для: {assets_str} | Стратегії: {strats_str}</div><br>")
+            
             tab.btn_run_wfv.setEnabled(False)
             tab.btn_run.setEnabled(False)
             
-            tab._wfv_worker = WfvWorker(code, "main.duckdb", table_name, parent=tab)
+            tab._wfv_worker = WfvWorker(codes, "main.duckdb", table_names, parent=tab)
             tab._wfv_worker.log_message.connect(lambda m: tab.safe_append_html(m))
             
             def on_finished():
@@ -1072,17 +1372,7 @@ class GuiBinder:
                 "cb_gen_signals": tab.cb_gen_signals.isChecked()
             }
             
-            interval = 1.0
-            import os
-            import json
-            if os.path.exists(tab.config_path):
-                try:
-                    with open(tab.config_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        interval = data.get("copilot", {}).get("routine_interval_hours", 1.0)
-                except Exception: pass
-            
-            logic.start_auto_routine(config_states, interval)
+            logic.start_auto_routine(config_states)
             
         def on_stop_auto():
             tab.log_console.append(f"[{__import__('datetime').datetime.now().strftime('%H:%M:%S')}] 🛑 Зупинка автономного планувальника...")
@@ -1123,14 +1413,6 @@ class GuiBinder:
             elif task_name == "Авто-завантаження":
                 logic.analyze_database(use_ccxt, use_massive)
             elif task_name == "Генерація стратегій":
-                interval = 1.0
-                import os, json
-                if os.path.exists(tab.config_path):
-                    try:
-                        with open(tab.config_path, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                            interval = data.get("copilot", {}).get("routine_interval_hours", 1.0)
-                    except: pass
                 config_states = {
                     "cb_auto_mode": False,
                     "cb_auto_gen": True,
@@ -1138,7 +1420,7 @@ class GuiBinder:
                     "cb_download_massive": False,
                     "cb_gen_signals": False
                 }
-                logic.start_auto_routine(config_states, interval)
+                logic.start_auto_routine(config_states)
                 logic.service.task_finished.emit("strategy_gen")
             elif task_name == "Очищення бази":
                 tab.log_console.append(f"[{__import__('datetime').datetime.now().strftime('%H:%M:%S')}] Очищення бази успішно імітовано.")

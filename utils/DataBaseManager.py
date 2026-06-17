@@ -5,7 +5,7 @@ import threading
 
 from utils.other_utils import _handle_error
 
-_db_lock = threading.Lock()
+_db_lock = threading.RLock()
 _connections = {}
 
 class DataBaseManager:
@@ -82,14 +82,16 @@ class DataBaseManager:
         "Параметри: table_name - назва таблиці, schema - рядок з описом стовпців (наприклад: 'id INTEGER, name TEXT')"
         self._validate_table_name(table_name)
         query = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({schema})'
-        self.conn.execute(query)
+        with _db_lock:
+            self.conn.cursor().execute(query)
 
     @_handle_error
     def create_index(self, table_name: str, column: str):
         """Створює індекс якщо не існує"""
         self._validate_table_name(table_name)
         index_name = f"idx_{table_name}_{column}"
-        self.conn.execute(f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{table_name}"("{column}")')
+        with _db_lock:
+            self.conn.cursor().execute(f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{table_name}"("{column}")')
 
     #------------------------------
     # Вставка даних з pandas DataFrame в таблицю новостворенную
@@ -102,7 +104,15 @@ class DataBaseManager:
         if 'timestamp' in df.columns:
             df = df.drop_duplicates(subset='timestamp', keep='last')
 
-        self.conn.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" AS SELECT * FROM df')
+        temp_view = f"temp_df_{id(df)}"
+        with _db_lock:
+            cur = self.conn.cursor()
+            try:
+                cur.register(temp_view, df)
+                cur.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" AS SELECT * FROM {temp_view}')
+            finally:
+                cur.unregister(temp_view)
+                cur.close()
         
         if 'timestamp' in df.columns:
             self.create_index(table_name, 'timestamp')
@@ -120,23 +130,51 @@ class DataBaseManager:
             # Для таблиць без timestamp (наприклад, результатів бектесту) 
             # просто додаємо всі нові рядки
             print(f"Записано нових рядків (без перевірки timestamp): {len(df)}")
-            self.conn.execute(f'INSERT INTO "{table_name}" SELECT * FROM df')
+            temp_view = f"temp_df_{id(df)}"
+            with _db_lock:
+                cur = self.conn.cursor()
+                try:
+                    cur.register(temp_view, df)
+                    cur.execute(f'INSERT INTO "{table_name}" SELECT * FROM {temp_view}')
+                finally:
+                    cur.unregister(temp_view)
+                    cur.close()
             return
 
         df_to_insert = df.drop_duplicates(subset='timestamp', keep='last')
-        df_to_insert = self.conn.execute(f"""
-            SELECT incoming.*
-            FROM df_to_insert AS incoming
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM "{table_name}" AS existing
-                WHERE existing.timestamp = incoming.timestamp
-            )
-        """).fetchdf()
+        temp_view_in = f"temp_df_in_{id(df_to_insert)}"
+        
+        with _db_lock:
+            cur = self.conn.cursor()
+            try:
+                cur.register(temp_view_in, df_to_insert)
+                df_to_insert = cur.execute(f"""
+                    SELECT incoming.*
+                    FROM {temp_view_in} AS incoming
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM "{table_name}" AS existing
+                        WHERE existing.timestamp = incoming.timestamp
+                    )
+                """).fetchdf()
+            finally:
+                cur.unregister(temp_view_in)
+                cur.close()
+                
+            if df_to_insert is not None:
+                df_to_insert = df_to_insert.copy(deep=True)
 
         if not df_to_insert.empty:
             print(f"Записано нових рядків: {len(df_to_insert)}")
-            self.conn.execute(f'INSERT INTO "{table_name}" SELECT * FROM df_to_insert')
+            temp_view_out = f"temp_df_out_{id(df_to_insert)}"
+            with _db_lock:
+                cur = self.conn.cursor()
+                try:
+                    cur.register(temp_view_out, df_to_insert)
+                    cur.execute(f'INSERT INTO "{table_name}" SELECT * FROM {temp_view_out}')
+                finally:
+                    cur.unregister(temp_view_out)
+                    cur.close()
         else:
             print("Нових даних для запису немає")
 
@@ -149,7 +187,9 @@ class DataBaseManager:
         "Параметри: table_name - назва таблиці, df - pandas DataFrame"
         self._validate_table_name(table_name)
 
-        if self.conn.execute(f"SELECT table_name FROM information_schema.tables WHERE table_name = '{table_name}'").fetchone() is None:
+        with _db_lock:
+            exists = self.conn.cursor().execute(f"SELECT table_name FROM information_schema.tables WHERE table_name = '{table_name}'").fetchone() is not None
+        if not exists:
             self.insert_data_from_pandas(table_name, df)
         else:
             self.insert_data_from_pandas_append(table_name, df)
@@ -167,7 +207,8 @@ class DataBaseManager:
     @_handle_error
     def get_all_tables(self):
         "Отримання списку всіх таблиць в базі даних"
-        tables = self.conn.execute("SELECT table_name FROM information_schema.tables").fetchall()
+        with _db_lock:
+            tables = self.conn.cursor().execute("SELECT table_name FROM information_schema.tables").fetchall()
         return [table[0] for table in tables]
     
     #------------------------------
@@ -178,7 +219,11 @@ class DataBaseManager:
     def get_data_as_dataframe(self, table_name):
         "Параметри: table_name - назва таблиці"
         self._validate_table_name(table_name)
-        df = self.conn.execute(f'SELECT * FROM "{table_name}"').fetchdf()
+        with _db_lock:
+            df = self.conn.cursor().execute(f'SELECT * FROM "{table_name}"').fetchdf()
+            if df is not None:
+                # Робимо deep copy щоб уникнути SegFault при zero-copy Arrow коли duckdb.conn закривається
+                df = df.copy(deep=True)
         return df
 
     #------------------------------
@@ -193,7 +238,10 @@ class DataBaseManager:
     def _get_last_record_as_dataframe(self, table_name):
         "Параметри: table_name - назва таблиці"
         self._validate_table_name(table_name)
-        df = self.conn.execute(f'SELECT * FROM "{table_name}" WHERE timestamp = (SELECT MAX(timestamp) FROM "{table_name}")').fetchdf()
+        with _db_lock:
+            df = self.conn.cursor().execute(f'SELECT * FROM "{table_name}" WHERE timestamp = (SELECT MAX(timestamp) FROM "{table_name}")').fetchdf()
+            if df is not None:
+                df = df.copy(deep=True)
         return df
     
     #------------------------------
@@ -205,7 +253,10 @@ class DataBaseManager:
         "Параметри: table_name - назва таблиці, number - кількість рядків для отримання"
         self._validate_table_name(table_name)
         try:
-            df = self.conn.execute(f'SELECT * FROM "{table_name}" ORDER BY timestamp DESC LIMIT {number}').fetchdf()
+            with _db_lock:
+                df = self.conn.cursor().execute(f'SELECT * FROM "{table_name}" ORDER BY timestamp DESC LIMIT {number}').fetchdf()
+                if df is not None:
+                    df = df.copy(deep=True)
             if df is not None and not df.empty and 'timestamp' in df.columns:
                 df = df.sort_values('timestamp').reset_index(drop=True)
         except Exception as e:
@@ -229,9 +280,10 @@ class DataBaseManager:
         query = f"""
             WITH TimeCheck AS (
                 SELECT 
-                    CAST(timestamp AS BIGINT) AS current_time,
-                    LAG(CAST(timestamp AS BIGINT)) OVER (ORDER BY CAST(timestamp AS BIGINT)) AS prev_time
+                    TRY_CAST(timestamp AS BIGINT) AS current_time,
+                    LAG(TRY_CAST(timestamp AS BIGINT)) OVER (ORDER BY TRY_CAST(timestamp AS BIGINT)) AS prev_time
                 FROM "{table_name}"
+                WHERE TRY_CAST(timestamp AS BIGINT) IS NOT NULL
             )
             SELECT 
                 prev_time AS gap_start, 
@@ -241,10 +293,38 @@ class DataBaseManager:
               AND (current_time - prev_time) > {timeframe_ms};
         """
         
-        df = self.conn.execute(query).fetchdf()
+        with _db_lock:
+            df = self.conn.cursor().execute(query).fetchdf()
+            if df is not None:
+                df = df.copy(deep=True)
         gaps_list = df.to_dict('records')
         
-        return gaps_list
+        # --- ФІЛЬТРАЦІЯ ВИХІДНИХ (Calendar-based weekend filtering) ---
+        import pandas as pd
+        filtered_gaps = []
+        
+        # Визначаємо, чи це крипта (на Massive префікс X, на CCXT кілька підкреслень)
+        is_crypto = table_name.startswith("X") or table_name.count('_') >= 2
+        
+        for gap in gaps_list:
+            start_ms = gap['gap_start']
+            end_ms = gap['gap_end']
+            
+            if not is_crypto:
+                start_dt = pd.to_datetime(start_ms, unit='ms')
+                end_dt = pd.to_datetime(end_ms, unit='ms')
+                
+                # Якщо прогалина почалась у П'ятницю (dayofweek==4) 
+                # і закінчилась у Неділю (6) або Понеділок (0)
+                if start_dt.dayofweek == 4 and (end_dt.dayofweek == 6 or end_dt.dayofweek == 0):
+                    hours_diff = (end_ms - start_ms) / (1000 * 60 * 60)
+                    # Стандартні вихідні тривають від ~40 годин (Forex) до ~65 годин (Акції)
+                    if 35 <= hours_diff <= 72:
+                        continue # Ігноруємо цю прогалину (це просто вихідні)
+                        
+            filtered_gaps.append(gap)
+        
+        return filtered_gaps
     
 
     #------------------------------

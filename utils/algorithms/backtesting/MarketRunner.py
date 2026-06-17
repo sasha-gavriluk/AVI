@@ -43,6 +43,8 @@ class MarketRunner(BaseSettings):
         import os, json
         self.config_mode = "Standard"
         self.bo_expiration_bars = 1
+        self.bo_fixed_time_enabled = False
+        self.bo_fixed_time_minutes = 60
         
         from utils.PathManager import PathManager
         config_path = PathManager.get_settings_path()
@@ -53,6 +55,12 @@ class MarketRunner(BaseSettings):
                     mode_data = data.get("trading_mode", {})
                     self.config_mode = mode_data.get("type", "Standard")
                     self.bo_expiration_bars = mode_data.get("bo_expiration_bars", 1)
+                    self.bo_fixed_time_enabled = mode_data.get("bo_fixed_time_enabled", False)
+                    self.bo_fixed_time_minutes = mode_data.get("bo_fixed_time_minutes", 60)
+                    
+                    risk_data = data.get("risk_management", {})
+                    if "initial_balance" in risk_data:
+                        self.initial_balance = risk_data["initial_balance"]
             except: pass
             
         self.bars_in_trade = 0 # Лічильник барів для поточної угоди
@@ -61,7 +69,7 @@ class MarketRunner(BaseSettings):
     # Запуск двигуна бэктесту
     #------------------------------
 
-    def run(self, result_table_name: str = None, df=None):
+    def run(self, result_table_name: str = None, df=None, save_to_db: bool = True):
         """Запуск бэктесту: ініціалізація БД, генерація сигналів та виконання."""
 
         print("Запуск бэктесту через Rules Engine...")
@@ -81,10 +89,19 @@ class MarketRunner(BaseSettings):
             if 'timestamp' in current_df.columns:
                 current_df = current_df.dropna(subset=['timestamp'])
                 current_df = current_df.sort_values('timestamp').reset_index(drop=True)
+                
+                if getattr(self, "bo_fixed_time_enabled", False) and len(current_df) >= 2:
+                    try:
+                        diff_ms = float(current_df['timestamp'].iloc[1]) - float(current_df['timestamp'].iloc[0])
+                        interval_min = diff_ms / 60000.0
+                        if interval_min > 0:
+                            bars = int(round(getattr(self, "bo_fixed_time_minutes", 60) / interval_min))
+                            self.bo_expiration_bars = max(1, bars)
+                    except Exception: pass
 
             # 1. Запускаємо рушій правил (векторизовано)
             from utils.rules_engine import IndicatorRegistry
-            registry = IndicatorRegistry(current_df)
+            registry = IndicatorRegistry(current_df, is_backtest=True)
             
             print("Обчислення сигналів стратегії...")
             signals_df = self.strategy.execute(registry)
@@ -96,7 +113,7 @@ class MarketRunner(BaseSettings):
             deal_writer = LaboratoryBacktesterDealWriter(db_manager=db, df=current_df, table_name=self.db_table_path, settings=self)
             
             # 3. Виконуємо ітерацію по розрахованих сигналах
-            return self._process_signals(current_df, signals_df, deal_writer, result_table_name=result_table_name)
+            return self._process_signals(current_df, signals_df, deal_writer, result_table_name=result_table_name, save_to_db=save_to_db)
 
         if df is not None:
             return _execute_run(None, df)
@@ -114,7 +131,7 @@ class MarketRunner(BaseSettings):
     # Процес ітерації по сигналах
     #------------------------------
 
-    def _process_signals(self, df: pd.DataFrame, signals_df: pd.DataFrame, deal_writer: LaboratoryBacktesterDealWriter, result_table_name: str = 'backtest_results'):
+    def _process_signals(self, df: pd.DataFrame, signals_df: pd.DataFrame, deal_writer: LaboratoryBacktesterDealWriter, result_table_name: str = 'backtest_results', save_to_db: bool = True):
         """Метод для переведення булевих сигналів у реальні угоди"""
 
         current_position = None  # None, 'BUY' або 'SELL'
@@ -124,24 +141,30 @@ class MarketRunner(BaseSettings):
         pre_signal_stage = 0 
         
         print("Виконання угод...")
+        
+        # Extract columns as numpy arrays for blazing fast iteration
+        import numpy as np
+        timestamps = df['timestamp'].values if 'timestamp' in df.columns else np.arange(len(df))
+        closes = df['close'].values if 'close' in df.columns else np.zeros(len(df))
+        
+        entries = signals_df['entry'].values
+        exits = signals_df['exit'].values
+        proximities = signals_df['entry_proximity'].values if 'entry_proximity' in signals_df.columns else np.zeros(len(df))
+
         for i in range(len(df)):
-            current_timestamp = float(df.iloc[i]['timestamp']) if 'timestamp' in df.columns else float(i)
-            
-            # Отримуємо розраховані рушієм сигнали
-            is_entry = bool(signals_df.iloc[i]['entry'])
-            is_exit = bool(signals_df.iloc[i]['exit'])
-            proximity = float(signals_df.iloc[i]['entry_proximity']) if 'entry_proximity' in signals_df.columns else 0.0
+            current_timestamp = float(timestamps[i])
+            is_entry = bool(entries[i])
+            is_exit = bool(exits[i])
+            proximity = float(proximities[i])
+            current_close = float(closes[i])
 
             if current_position is None and not is_entry:
                 # Early Warning (Pre-Signal) логіка
                 if proximity >= 0.9 and pre_signal_stage < 90:
-                    # print(f"[PRE-SIGNAL] {df.iloc[i].get('timestamp_str', current_timestamp)}: Готовність сигналу 90% (Майже сформовано!)")
                     pre_signal_stage = 90
                 elif proximity >= 0.75 and proximity < 0.9 and pre_signal_stage < 75:
-                    # print(f"[PRE-SIGNAL] {df.iloc[i].get('timestamp_str', current_timestamp)}: Готовність сигналу 75%")
                     pre_signal_stage = 75
                 elif proximity >= 0.50 and proximity < 0.75 and pre_signal_stage < 50:
-                    # print(f"[PRE-SIGNAL] {df.iloc[i].get('timestamp_str', current_timestamp)}: Готовність сигналу 50%")
                     pre_signal_stage = 50
                 elif proximity < 0.3:
                     # Скидаємо стадію, якщо ринок відійшов від сигналу
@@ -159,7 +182,7 @@ class MarketRunner(BaseSettings):
                     self.bars_in_trade += 1
                     
                     if self.bars_in_trade >= getattr(self, "bo_expiration_bars", 1):
-                        deal_writer._add_trade_exit(timestamp=current_timestamp, id_trade=current_trade_id)
+                        deal_writer._add_trade_exit(timestamp=current_timestamp, price=current_close, id_trade=current_trade_id)
                         current_position = None
                         current_trade_id = None
                         self.bars_in_trade = 0
@@ -167,13 +190,13 @@ class MarketRunner(BaseSettings):
                     # --- СТАНДАРТНИЙ РЕЖИМ (CFD / Forex / Crypto) ---
                     # Автоматичне закриття угоди (close_on_next_candle)
                     if self.close_on_next_candle and not is_entry:
-                        deal_writer._add_trade_exit(timestamp=current_timestamp, id_trade=current_trade_id)
+                        deal_writer._add_trade_exit(timestamp=current_timestamp, price=current_close, id_trade=current_trade_id)
                         current_position = None
                         current_trade_id = None
                     
                     # Вихід по сигналу індикатора
                     elif is_exit:
-                        deal_writer._add_trade_exit(timestamp=current_timestamp, id_trade=current_trade_id)
+                        deal_writer._add_trade_exit(timestamp=current_timestamp, price=current_close, id_trade=current_trade_id)
                         current_position = None
                         current_trade_id = None
 
@@ -182,9 +205,10 @@ class MarketRunner(BaseSettings):
             # ==========================================
             if is_entry and current_position is None:
                 trade_type = 'buy' if self.trade_direction == 'BUY' else 'sell'
-                deal_writer._add_trade_entry(trade_type=trade_type, timestamp=current_timestamp)
-                latest_trade = deal_writer.id_trade_info.iloc[-1]
-                current_trade_id = latest_trade['TradeNumber']
+                deal_writer._add_trade_entry(trade_type=trade_type, timestamp=current_timestamp, price=current_close)
+                # After entry, the last trade in the list is our new trade
+                if deal_writer.trades_list:
+                    current_trade_id = deal_writer.trades_list[-1]["TradeNumber"]
                 current_position = self.trade_direction
                 
                 # Скидаємо лічильник барів при відкритті нової угоди
@@ -192,16 +216,22 @@ class MarketRunner(BaseSettings):
         
         # Закриваємо позицію в кінці бэктесту, якщо вона залишилась відкритою
         if current_position is not None:
-            last_timestamp = float(df.iloc[-1]['timestamp']) if 'timestamp' in df.columns else float(len(df)-1)
-            deal_writer._add_trade_exit(timestamp=last_timestamp, id_trade=current_trade_id)
+            last_timestamp = float(timestamps[-1])
+            last_close = float(closes[-1])
+            deal_writer._add_trade_exit(timestamp=last_timestamp, price=last_close, id_trade=current_trade_id)
             
         # Зберігаємо результати у базу даних
-        try:
-            # ВИПРАВЛЕНО: Використовуємо з'єднання з deal_writer замість локального db, якого тут немає
-            deal_writer.db_manager.conn.execute(f"DROP TABLE IF EXISTS {result_table_name}")
-        except Exception:
-            pass
-            
-        deal_writer.save_results_to_db(table_name=result_table_name)
+        if save_to_db:
+            try:
+                # ВИПРАВЛЕНО: Використовуємо з'єднання з deal_writer замість локального db, якого тут немає
+                if deal_writer.db_manager and deal_writer.db_manager.conn:
+                    deal_writer.db_manager.conn.execute(f"DROP TABLE IF EXISTS {result_table_name}")
+            except Exception:
+                pass
+                
+            deal_writer.save_results_to_db(table_name=result_table_name)
+        
+        # Отримуємо DataFrame з угодами для повернення
+        final_df = deal_writer.finalize_trades()
         print("Бэктест завершено.")
-        return deal_writer.id_trade_info
+        return final_df

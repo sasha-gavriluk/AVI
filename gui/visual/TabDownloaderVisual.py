@@ -66,8 +66,14 @@ class TabDownloaderVisual(QWidget):
         source_layout = QVBoxLayout(source_group)
         self.radio_massive = QRadioButton("Massive API (База 'main.duckdb')")
         self.radio_massive.setChecked(True)
+        
+        self.massive_market_combo = QComboBox()
+        self.massive_market_combo.addItems(["Ринок: Forex / Stocks", "Ринок: Crypto"])
+        self.massive_market_combo.setStyleSheet("QComboBox { margin-left: 20px; padding: 2px; background-color: #313244; color: #CDD6F4; border-radius: 3px; }")
+        
         self.radio_exchange = QRadioButton("Біржовий коннектор (Окремі бази)")
         source_layout.addWidget(self.radio_massive)
+        source_layout.addWidget(self.massive_market_combo)
         source_layout.addWidget(self.radio_exchange)
         left_layout.addWidget(source_group)
         
