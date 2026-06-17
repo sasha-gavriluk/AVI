@@ -1,383 +1,207 @@
 import numpy as np
 import pandas as pd
 from utils.algorithms.WrapCandleEngine import WCE
+from utils.algorithms.indicators.AlgorithmProcessor import AlgorithmProcessor
 
 class BacktestAlgorithmProcessor(AlgorithmProcessor):
     """
     Спеціалізований клас для обробки алгоритмічних фіч під час бектестування.
-    Перевизначає методи для усунення "заглядання в майбутнє".
-    Цей клас гарантує, що всі розрахунки базуються лише на історичних даних,
-    доступних на момент поточної свічки.
+    Векторизована версія, яка обробляє весь DataFrame (історичні дані) без заглядання в майбутнє.
     """
-    # ----------------------------------
-    # Ініціалізація
-    # ----------------------------------
-
     def __init__(self, data: pd.DataFrame, processed_data: pd.DataFrame, algorithm_params=None, fractal_window=2):
-        """Ініціалізація"""
         super().__init__(data, processed_data, algorithm_params)
-        self.fractal_window = fractal_window # Window size for lookahead-free fractals
-        # Store last confirmed swing points to build market structure incrementally
-        self._last_swing_high = {'index': -1, 'value': -np.inf}
-        self._last_swing_low = {'index': -1, 'value': np.inf}
-
-    # ----------------------------------
-    # Пошук fractal levels
-    # ----------------------------------
+        self.fractal_window = fractal_window 
 
     def find_fractal_levels(self):
-        """
-        Lookahead-free fractal detection.
-        A fractal high is the highest point in a trailing window.
-        A fractal low is the lowest point in a trailing window.
-        """
-        # Initialize columns if they don't exist
-        if 'Fractal_High' not in self.processed_data.columns:
-            self.processed_data['Fractal_High'] = False
-        if 'Fractal_Low' not in self.processed_data.columns:
-            self.processed_data['Fractal_Low'] = False
-
-        if len(self.processed_data) < self.fractal_window + 1:
-            return # Not enough data for initial fractal calculation
-
-        # Get the current candle's index (last index in the slice)
-        current_idx_in_slice = len(self.processed_data) - 1
-        current_candle_df_index = self.processed_data.index[current_idx_in_slice]
-
-        # Check for Fractal High at the current candle
-        # The current high must be the maximum in the window ending at the current candle
-        if current_idx_in_slice >= self.fractal_window:
-            window_highs = self.processed_data['high'].iloc[current_idx_in_slice - self.fractal_window : current_idx_in_slice + 1]
-            if self.processed_data['high'].iloc[current_idx_in_slice] == window_highs.max():
-                self.processed_data.loc[current_candle_df_index, 'Fractal_High'] = True
-
-            # Check for Fractal Low at the current candle
-            window_lows = self.processed_data['low'].iloc[current_idx_in_slice - self.fractal_window : current_idx_in_slice + 1]
-            if self.processed_data['low'].iloc[current_idx_in_slice] == window_lows.min():
-                self.processed_data.loc[current_candle_df_index, 'Fractal_Low'] = True
-
-    # ----------------------------------
-    # Пошук peaks levels
-    # ----------------------------------
+        w = self.fractal_window
+        highs = self.processed_data['high']
+        lows = self.processed_data['low']
+        rolling_max = highs.rolling(window=w+1, min_periods=1).max()
+        rolling_min = lows.rolling(window=w+1, min_periods=1).min()
+        self.processed_data['Fractal_High'] = (highs == rolling_max) & highs.notna()
+        self.processed_data['Fractal_Low'] = (lows == rolling_min) & lows.notna()
 
     def find_peaks_levels(self, prominence=1, distance=5):
-        """
-        Lookahead-free find_peaks_levels.
-        This version processes peaks/troughs only up to the current candle.
-        """
-        current_idx_in_slice = len(self.processed_data) - 1
-        current_candle_df_index = self.processed_data.index[current_idx_in_slice]
-
-        # To avoid lookahead, we can only confirm a peak/trough after `distance` candles have passed.
-        # For a truly lookahead-free backtest, often peaks are confirmed retrospectively.
-        # For simplicity here, we'll check the current candle relative to its *past* window.
-        # This is a simplification, as `find_peaks` is inherently designed for full series.
-        # A more robust lookahead-free peak detection would involve iterative confirmation.
-
-        # For now, we'll mark the current candle as a potential peak/trough
-        # if it's the highest/lowest in a trailing window.
-        
-        # Initialize columns if they don't exist
-        if 'Peak_High' not in self.processed_data.columns:
-            self.processed_data['Peak_High'] = False
-        if 'Peak_Low' not in self.processed_data.columns:
-            self.processed_data['Peak_Low'] = False
-
-        if current_idx_in_slice >= distance:
-            # Check for Peak High: current high is max in trailing window
-            window_highs = self.processed_data['high'].iloc[current_idx_in_slice - distance : current_idx_in_slice + 1]
-            if self.processed_data['high'].iloc[current_idx_in_slice] == window_highs.max():
-                self.processed_data.loc[current_candle_df_index, 'Peak_High'] = True
-
-            # Check for Peak Low: current low is min in trailing window
-            window_lows = self.processed_data['low'].iloc[current_idx_in_slice - distance : current_idx_in_slice + 1]
-            if self.processed_data['low'].iloc[current_idx_in_slice] == window_lows.min():
-                self.processed_data.loc[current_candle_df_index, 'Peak_Low'] = True
-        
-        # This method will not return series, but update processed_data directly.
-        # The `calculate_levels` method will then read from these columns.
-
-    # ----------------------------------
-    # Виявлення fair value gaps
-    # ----------------------------------
+        highs = self.processed_data['high']
+        lows = self.processed_data['low']
+        rolling_max = highs.rolling(window=distance+1, min_periods=1).max()
+        rolling_min = lows.rolling(window=distance+1, min_periods=1).min()
+        self.processed_data['Peak_High'] = (highs == rolling_max) & highs.notna()
+        self.processed_data['Peak_Low'] = (lows == rolling_min) & lows.notna()
+        return self.processed_data['high'][self.processed_data['Peak_High']], self.processed_data['low'][self.processed_data['Peak_Low']]
 
     def detect_fair_value_gaps(self, min_gap_ratio=0.0003):
-        """
-        Lookahead-free Fair Value Gaps (FVG) detection for the current candle.
-        Bullish FVG: Low[current] > High[current-2]
-        Bearish FVG: High[current] < Low[current-2]
-        """
-        # Initialize columns if they don't exist
-        if 'FVG_Up' not in self.processed_data.columns:
-            self.processed_data['FVG_Up'] = False
-        if 'FVG_Down' not in self.processed_data.columns:
-            self.processed_data['FVG_Down'] = False
-        if 'FVG_Size' not in self.processed_data.columns:
-            self.processed_data['FVG_Size'] = np.nan
-
-        current_idx_in_slice = len(self.processed_data) - 1
-        current_candle_df_index = self.processed_data.index[current_idx_in_slice]
-
-        if current_idx_in_slice < 2: # Need at least 3 candles (i, i-1, i-2) for FVG
-            return
-
-        curr_high = self.processed_data['high'].iloc[current_idx_in_slice]
-        curr_low = self.processed_data['low'].iloc[current_idx_in_slice]
-        prev2_high = self.processed_data['high'].iloc[current_idx_in_slice - 2]
-        prev2_low = self.processed_data['low'].iloc[current_idx_in_slice - 2]
-        current_price = self.processed_data['close'].iloc[current_idx_in_slice]
-
-        # Bullish FVG
-        if curr_low > prev2_high:
-            gap_size = curr_low - prev2_high
-            if current_price > 0 and (gap_size / current_price) > min_gap_ratio:
-                self.processed_data.loc[current_candle_df_index, 'FVG_Up'] = True
-                self.processed_data.loc[current_candle_df_index, 'FVG_Size'] = gap_size
-
-        # Bearish FVG
-        if curr_high < prev2_low:
-            gap_size = prev2_low - curr_high
-            if current_price > 0 and (gap_size / current_price) > min_gap_ratio:
-                self.processed_data.loc[current_candle_df_index, 'FVG_Down'] = True
-                self.processed_data.loc[current_candle_df_index, 'FVG_Size'] = gap_size
-
-    # ----------------------------------
-    # Виявлення market structure
-    # ----------------------------------
-
-    def detect_market_structure(self):
-        """
-        Lookahead-free market structure detection based on confirmed fractals.
-        This method updates the market structure for the current candle based on
-        the most recent confirmed swing high/low.
-        """
-        # Initialize columns if they don't exist
-        if 'Market_Structure_Point' not in self.processed_data.columns:
-            self.processed_data['Market_Structure_Point'] = None
-        if 'Market_Structure_Type' not in self.processed_data.columns:
-            self.processed_data['Market_Structure_Type'] = None
-        if 'Highs_Lows' not in self.processed_data.columns:
-            self.processed_data['Highs_Lows'] = 0
-
-        current_idx_in_slice = len(self.processed_data) - 1
-        current_candle_df_index = self.processed_data.index[current_idx_in_slice]
+        high = self.processed_data['high']
+        low = self.processed_data['low']
+        close = self.processed_data['close']
         
-        current_high = self.processed_data['high'].iloc[current_idx_in_slice]
-        current_low = self.processed_data['low'].iloc[current_idx_in_slice]
-
-        # Update last swing high/low if a new fractal is detected at the current candle
-        if self.processed_data.loc[current_candle_df_index, 'Fractal_High']:
-            self.processed_data.loc[current_candle_df_index, 'Market_Structure_Point'] = 'swing_high'
-            if current_high > self._last_swing_high['value']:
-                self.processed_data.loc[current_candle_df_index, 'Market_Structure_Type'] = 'HH'
-                self.processed_data.loc[current_candle_df_index, 'Highs_Lows'] = 1
-            else:
-                self.processed_data.loc[current_candle_df_index, 'Market_Structure_Type'] = 'LH'
-                self.processed_data.loc[current_candle_df_index, 'Highs_Lows'] = -1
-            self._last_swing_high = {'index': current_candle_df_index, 'value': current_high}
-            # If a new high, reset last low for HH/HL comparison
-            self._last_swing_low = {'index': -1, 'value': np.inf} # Reset to allow new HL detection
-
-        elif self.processed_data.loc[current_candle_df_index, 'Fractal_Low']:
-            self.processed_data.loc[current_candle_df_index, 'Market_Structure_Point'] = 'swing_low'
-            if current_low < self._last_swing_low['value']:
-                self.processed_data.loc[current_candle_df_index, 'Market_Structure_Type'] = 'LL'
-                self.processed_data.loc[current_candle_df_index, 'Highs_Lows'] = -1
-            else:
-                self.processed_data.loc[current_candle_df_index, 'Market_Structure_Type'] = 'HL'
-                self.processed_data.loc[current_candle_df_index, 'Highs_Lows'] = 1
-            self._last_swing_low = {'index': current_candle_df_index, 'value': current_low}
-            # If a new low, reset last high for LL/LH comparison
-            self._last_swing_high = {'index': -1, 'value': -np.inf} # Reset to allow new LH detection
-
-        # If no new swing point, carry forward the last known structure type or None
-        if current_idx_in_slice > 0 and self.processed_data.loc[current_candle_df_index, 'Market_Structure_Type'] is None:
-            self.processed_data.loc[current_candle_df_index, 'Market_Structure_Type'] = \
-                self.processed_data['Market_Structure_Type'].iloc[current_idx_in_slice - 1]
-            self.processed_data.loc[current_candle_df_index, 'Highs_Lows'] = \
-                self.processed_data['Highs_Lows'].iloc[current_idx_in_slice - 1]
-
-    # ----------------------------------
-    # Виявлення liquidity sweep (Lookahead-free)
-    # ----------------------------------
+        prev2_high = high.shift(2)
+        prev2_low = low.shift(2)
+        
+        gap_up = low > prev2_high
+        gap_down = high < prev2_low
+        
+        gap_size_up = low - prev2_high
+        gap_size_down = prev2_low - high
+        
+        self.processed_data['FVG_Up'] = gap_up & ((gap_size_up / close) > min_gap_ratio)
+        self.processed_data['FVG_Down'] = gap_down & ((gap_size_down / close) > min_gap_ratio)
+        self.processed_data['FVG_Size'] = np.where(self.processed_data['FVG_Up'], gap_size_up, 
+                                          np.where(self.processed_data['FVG_Down'], gap_size_down, np.nan))
 
     def detect_liquidity_sweep(self, swing_window=3, tolerance=0.0005):
-        if 'Sweep_High' not in self.processed_data.columns:
-            self.processed_data['Sweep_High'] = False
-        if 'Sweep_Low' not in self.processed_data.columns:
-            self.processed_data['Sweep_Low'] = False
+        highs = self.processed_data['high']
+        lows = self.processed_data['low']
+        past_highs = highs.shift(1).rolling(window=swing_window, min_periods=1).max()
+        past_lows = lows.shift(1).rolling(window=swing_window, min_periods=1).min()
+        
+        self.processed_data['Sweep_High'] = highs > past_highs * (1 + tolerance)
+        self.processed_data['Sweep_Low'] = lows < past_lows * (1 - tolerance)
+        self.processed_data['Sweep_High'] = self.processed_data['Sweep_High'].fillna(False)
+        self.processed_data['Sweep_Low'] = self.processed_data['Sweep_Low'].fillna(False)
 
-        current_idx = len(self.processed_data) - 1
-        current_candle_idx = self.processed_data.index[current_idx]
-
-        if current_idx < swing_window:
-            return
-
-        # Тільки минулі свічки
-        local_high = self.processed_data['high'].iloc[current_idx - swing_window : current_idx].max()
-        local_low = self.processed_data['low'].iloc[current_idx - swing_window : current_idx].min()
-
-        if self.processed_data['high'].iloc[current_idx] > local_high * (1 + tolerance):
-            self.processed_data.loc[current_candle_idx, 'Sweep_High'] = True
-
-        if self.processed_data['low'].iloc[current_idx] < local_low * (1 - tolerance):
-            self.processed_data.loc[current_candle_idx, 'Sweep_Low'] = True
-
-    # ----------------------------------
-    # Виявлення bos choch (Lookahead-free для поточної свічки)
-    # ----------------------------------
+    def detect_market_structure(self):
+        self.find_fractal_levels()
+        
+        n = len(self.processed_data)
+        points = [None] * n
+        types = [None] * n
+        hl_flags = [0] * n
+        
+        last_high_val = -np.inf
+        last_low_val = np.inf
+        
+        highs = self.processed_data['high'].values
+        lows = self.processed_data['low'].values
+        fh = self.processed_data['Fractal_High'].values
+        fl = self.processed_data['Fractal_Low'].values
+        
+        for i in range(n):
+            if fh[i]:
+                points[i] = 'swing_high'
+                if highs[i] > last_high_val:
+                    types[i] = 'HH'
+                    hl_flags[i] = 1
+                else:
+                    types[i] = 'LH'
+                    hl_flags[i] = -1
+                last_high_val = highs[i]
+                last_low_val = np.inf 
+            elif fl[i]:
+                points[i] = 'swing_low'
+                if lows[i] < last_low_val:
+                    types[i] = 'LL'
+                    hl_flags[i] = -1
+                else:
+                    types[i] = 'HL'
+                    hl_flags[i] = 1
+                last_low_val = lows[i]
+                last_high_val = -np.inf 
+            else:
+                if i > 0:
+                    types[i] = types[i-1]
+                    hl_flags[i] = hl_flags[i-1]
+                    
+        self.processed_data['Market_Structure_Point'] = points
+        self.processed_data['Market_Structure_Type'] = types
+        self.processed_data['Highs_Lows'] = hl_flags
 
     def detect_bos_choch(self):
-        """
-        Lookahead-free BOS / CHoCH для поточної свічки (щоб не перераховувати O(N^2)).
-        """
-        if 'BOS' not in self.processed_data.columns:
-            self.processed_data['BOS'] = False
-        if 'CHoCH' not in self.processed_data.columns:
-            self.processed_data['CHoCH'] = False
+        if 'Market_Structure_Type' not in self.processed_data.columns:
+            self.detect_market_structure()
             
-        # Якщо ми не маємо стану тренду, ініціалізуємо змінні
-        if not hasattr(self, '_trend_direction'):
-            self._trend_direction = None
-            self._last_confirmed_hh = None
-            self._last_confirmed_hl = None
-            self._last_confirmed_ll = None
-            self._last_confirmed_lh = None
-
-        current_idx_in_slice = len(self.processed_data) - 1
-        current_candle_df_index = self.processed_data.index[current_idx_in_slice]
+        n = len(self.processed_data)
+        bos = [False] * n
+        choch = [False] * n
         
-        point = self.processed_data['Market_Structure_Type'].iloc[current_idx_in_slice]
-        price = self.data['close'].iloc[current_idx_in_slice]
+        trend_dir = None
+        last_hh = None
+        last_hl = None
+        last_ll = None
+        last_lh = None
         
-        bos_signal = False
-        choch_signal = False
+        types = self.processed_data['Market_Structure_Type'].values
+        closes = self.processed_data['close'].values
         
-        # Перевіряємо, чи змінилася структура на поточній свічці
-        # Якщо структура та сама, що і на попередній, не робимо повторних обчислень для того ж екстремуму
-        prev_point = self.processed_data['Market_Structure_Type'].iloc[current_idx_in_slice - 1] if current_idx_in_slice > 0 else None
-        
-        if point is not None and point != prev_point:
-            if point == 'HH':
-                if self._last_confirmed_hh is None or price > self._last_confirmed_hh:
-                    self._last_confirmed_hh = price
-                if self._trend_direction == 'downtrend' and self._last_confirmed_lh is not None and price > self._last_confirmed_lh:
-                    choch_signal = True
-                    self._trend_direction = 'uptrend'
-                elif self._trend_direction == 'uptrend' and self._last_confirmed_hh is not None and price > self._last_confirmed_hh:
-                    bos_signal = True
-                elif self._trend_direction is None:
-                    self._trend_direction = 'uptrend'
-
-            elif point == 'HL':
-                if self._last_confirmed_hl is None or price > self._last_confirmed_hl:
-                    self._last_confirmed_hl = price
-
-            elif point == 'LL':
-                if self._last_confirmed_ll is None or price < self._last_confirmed_ll:
-                    self._last_confirmed_ll = price
-                if self._trend_direction == 'uptrend' and self._last_confirmed_hl is not None and price < self._last_confirmed_hl:
-                    choch_signal = True
-                    self._trend_direction = 'downtrend'
-                elif self._trend_direction == 'downtrend' and self._last_confirmed_ll is not None and price < self._last_confirmed_ll:
-                    bos_signal = True
-                elif self._trend_direction is None:
-                    self._trend_direction = 'downtrend'
-
-            elif point == 'LH':
-                if self._last_confirmed_lh is None or price < self._last_confirmed_lh:
-                    self._last_confirmed_lh = price
-
-        self.processed_data.loc[current_candle_df_index, 'BOS'] = bos_signal
-        self.processed_data.loc[current_candle_df_index, 'CHoCH'] = choch_signal
-
-    # ----------------------------------
-    # Розрахунок levels
-    # ----------------------------------
+        for i in range(n):
+            point = types[i]
+            price = closes[i]
+            prev_point = types[i-1] if i > 0 else None
+            
+            if point is not None and point != prev_point:
+                if point == 'HH':
+                    if last_hh is None or price > last_hh: last_hh = price
+                    if trend_dir == 'downtrend' and last_lh is not None and price > last_lh:
+                        choch[i] = True
+                        trend_dir = 'uptrend'
+                    elif trend_dir == 'uptrend' and last_hh is not None and price > last_hh:
+                        bos[i] = True
+                    elif trend_dir is None:
+                        trend_dir = 'uptrend'
+                elif point == 'HL':
+                    if last_hl is None or price > last_hl: last_hl = price
+                elif point == 'LL':
+                    if last_ll is None or price < last_ll: last_ll = price
+                    if trend_dir == 'uptrend' and last_hl is not None and price < last_hl:
+                        choch[i] = True
+                        trend_dir = 'downtrend'
+                    elif trend_dir == 'downtrend' and last_ll is not None and price < last_ll:
+                        bos[i] = True
+                    elif trend_dir is None:
+                        trend_dir = 'downtrend'
+                elif point == 'LH':
+                    if last_lh is None or price < last_lh: last_lh = price
+                    
+        self.processed_data['BOS'] = bos
+        self.processed_data['CHoCH'] = choch
 
     def calculate_levels(self):
-        """
-        Lookahead-free calculate_levels method.
-        This method is now part of BacktestAlgorithmProcessor and will use
-        the lookahead-free versions of `find_fractal_levels` and `find_peaks_levels`.
-        """
-        # Ensure fractal and peak levels are calculated first, as they modify processed_data in place
-        self.find_fractal_levels() # This updates 'Fractal_High' and 'Fractal_Low'
-        self.find_peaks_levels()   # This updates 'Peak_High' and 'Peak_Low'
-
+        self.find_fractal_levels()
+        self.find_peaks_levels()
+        
         resistance_levels_list = []
         support_levels_list = []
 
-        current_idx_in_slice = len(self.processed_data) - 1
-        current_candle_df_index = self.processed_data.index[current_idx_in_slice]
-        
-        # Метод 1: Піки та западини (з lookahead-free Peak_High/Low)
-        if 'Peak_High' in self.processed_data.columns and self.processed_data.loc[current_candle_df_index, 'Peak_High']:
-            resistance_levels_list.append(pd.Series([self.processed_data['high'].iloc[current_idx_in_slice]]))
-        if 'Peak_Low' in self.processed_data.columns and self.processed_data.loc[current_candle_df_index, 'Peak_Low']:
-            support_levels_list.append(pd.Series([self.processed_data['low'].iloc[current_idx_in_slice]]))
+        res_peaks = self.processed_data['high'][self.processed_data['Peak_High']]
+        sup_peaks = self.processed_data['low'][self.processed_data['Peak_Low']]
+        if not res_peaks.empty: resistance_levels_list.append(res_peaks)
+        if not sup_peaks.empty: support_levels_list.append(sup_peaks)
 
-        # Метод 2: Фрактали (з lookahead-free Fractal_High/Low)
-        if 'Fractal_High' in self.processed_data.columns and self.processed_data.loc[current_candle_df_index, 'Fractal_High']:
-            resistance_levels_list.append(pd.Series([self.processed_data['high'].iloc[current_idx_in_slice]]))
-        if 'Fractal_Low' in self.processed_data.columns and self.processed_data.loc[current_candle_df_index, 'Fractal_Low']:
-            support_levels_list.append(pd.Series([self.processed_data['low'].iloc[current_idx_in_slice]]))
+        res_fractals = self.processed_data['high'][self.processed_data['Fractal_High']]
+        sup_fractals = self.processed_data['low'][self.processed_data['Fractal_Low']]
+        if not res_fractals.empty: resistance_levels_list.append(res_fractals)
+        if not sup_fractals.empty: support_levels_list.append(sup_fractals)
 
-        # Метод 3: Pivot Points (використовуємо базовий метод, він вже lookahead-free для поточної свічки)
         res_pivots, sup_pivots = super().calculate_pivot_points()
-        if not res_pivots.empty:
-            resistance_levels_list.append(res_pivots)
-        if not sup_pivots.empty:
-            support_levels_list.append(sup_pivots)
+        if not res_pivots.empty: resistance_levels_list.append(res_pivots)
+        if not sup_pivots.empty: support_levels_list.append(sup_pivots)
 
-        # Метод 4: Фібоначчі (використовуємо базовий метод, він вже lookahead-free для поточної свічки)
         res_fibo, sup_fibo = super().calculate_fibonacci_levels()
-        if not res_fibo.empty:
-            resistance_levels_list.append(res_fibo)
-        if not sup_fibo.empty:
-            support_levels_list.append(sup_fibo)
+        if not res_fibo.empty: resistance_levels_list.append(res_fibo)
+        if not sup_fibo.empty: support_levels_list.append(sup_fibo)
 
-        # Ініціалізуємо колонки, якщо вони ще не існують
-        if 'Near_Resistance' not in self.processed_data.columns:
-            self.processed_data['Near_Resistance'] = False
-        if 'Near_Support' not in self.processed_data.columns:
-            self.processed_data['Near_Support'] = False
-
-        # Перевірка, чи є рівні для комбінування
         if resistance_levels_list or support_levels_list:
             all_resistances = pd.concat(resistance_levels_list).dropna() if resistance_levels_list else pd.Series()
             all_supports = pd.concat(support_levels_list).dropna() if support_levels_list else pd.Series()
 
-            # Кластеризація рівнів
-            # Викликаємо cluster_levels з правильним ім'ям аргументу 'tolerance'
             res_clusters = self.cluster_levels(all_resistances, tolerance=0.005) 
             sup_clusters = self.cluster_levels(all_supports, tolerance=0.005) 
 
-            # Знаходимо значущі рівні (підтверджені як мінімум одним методом)
-            # Примітка: find_significant_levels також є методом батьківського класу.
-            # Оскільки він працює з Series, його можна використовувати без змін.
             self.significant_resistances, self.significant_supports = self.find_significant_levels(res_clusters, sup_clusters, methods_count=1)
 
-            # Додаємо логічні колонки, які показують, чи ціна близька до рівнів
-            current_price = self.processed_data['close'].iloc[current_idx_in_slice]
-            
-            self.processed_data.loc[current_candle_df_index, 'Near_Resistance'] = self.is_near_level(current_price, self.significant_resistances)
-            self.processed_data.loc[current_candle_df_index, 'Near_Support'] = self.is_near_level(current_price, self.significant_supports)
+            self.processed_data['Near_Resistance'] = self.processed_data['close'].apply(
+                lambda price: self.is_near_level(price, self.significant_resistances)
+            )
+            self.processed_data['Near_Support'] = self.processed_data['close'].apply(
+                lambda price: self.is_near_level(price, self.significant_supports)
+            )
         else:
-            # Якщо рівнів не знайдено, встановлюємо False для поточної свічки
-            self.processed_data.loc[current_candle_df_index, 'Near_Resistance'] = False
-            self.processed_data.loc[current_candle_df_index, 'Near_Support'] = False
-            # print("No levels found to combine for the current candle.")
-
-
-    # ----------------------------------
-    # Головний метод обробки даних
-    # ----------------------------------
+            self.processed_data['Near_Resistance'] = False
+            self.processed_data['Near_Support'] = False
 
     def process_data(self):
-        """Main function to run algorithmic processing based on provided parameters."""
         algo_methods = {
-            'Levels': self.calculate_levels, # Now calls the overridden version
+            'Levels': self.calculate_levels,
             'Market_Structure': self.detect_market_structure,
             'BOS_CHoCH': self.detect_bos_choch,
             'Liquidity_Sweep': self.detect_liquidity_sweep,
@@ -393,12 +217,8 @@ class BacktestAlgorithmProcessor(AlgorithmProcessor):
                 else:
                     print(f"Алгоритмічна функція '{key}' не підтримується.")
         else:
-            # If no parameters, run all algorithms with default values
             for method in algo_methods.values():
                 method()
 
         return self.processed_data
-    
-# ==================================
-# Головний менеджер для оркестрації обробки даних
-# ==================================
+

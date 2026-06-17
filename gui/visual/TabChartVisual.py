@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QMenuBar, QSplitter, 
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QMenuBar, QSplitter, 
                                QDialog, QRadioButton, QDialogButtonBox, QGroupBox, QButtonGroup, QComboBox, QCheckBox, QPushButton)
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -19,6 +19,7 @@ class TabChartVisual(QWidget):
     x_range_changed = pyqtSignal(object, object)
     reset_camera_requested = pyqtSignal()
     clear_temp_sim_requested = pyqtSignal()
+    screenshot_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -62,6 +63,24 @@ class TabChartVisual(QWidget):
         self.sim_menu.addAction(self.sim_toggle_action)
         self.sim_menu.addAction(self.sim_settings_action)
         
+        self.corner_widget = QWidget()
+        corner_layout = QHBoxLayout(self.corner_widget)
+        corner_layout.setContentsMargins(0, 2, 5, 2)
+        
+        self.btn_toggle_panel = QPushButton("📋 Панель угод")
+        self.btn_toggle_panel.setStyleSheet("background-color: #313244; color: #CDD6F4; font-weight: bold; padding: 4px 15px; border-radius: 4px;")
+        self.btn_toggle_panel.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_toggle_panel.clicked.connect(self.toggle_right_panel)
+        corner_layout.addWidget(self.btn_toggle_panel)
+        
+        self.btn_screenshot = QPushButton("📸 Скріншот")
+        self.btn_screenshot.setStyleSheet("background-color: #8E24AA; color: white; font-weight: bold; padding: 4px 15px; border-radius: 4px;")
+        self.btn_screenshot.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_screenshot.clicked.connect(self.screenshot_requested.emit)
+        corner_layout.addWidget(self.btn_screenshot)
+        
+        self.menubar.setCornerWidget(self.corner_widget, Qt.Corner.TopRightCorner)
+        
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.layout.addWidget(self.splitter)
         
@@ -79,12 +98,27 @@ class TabChartVisual(QWidget):
         self.right_panel = QWidget()
         right_layout = QVBoxLayout(self.right_panel)
         right_layout.setContentsMargins(0,0,0,0)
+        
+        # Додаємо верхню панель з кнопкою закриття
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(5, 5, 5, 5)
+        self.btn_close_panel = QPushButton("✖ Закрити")
+        self.btn_close_panel.setStyleSheet("QPushButton { background-color: transparent; color: #CDD6F4; border: none; font-weight: bold; } QPushButton:hover { color: #F38BA8; }")
+        self.btn_close_panel.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_close_panel.clicked.connect(self.right_panel.hide)
+        header_layout.addStretch()
+        header_layout.addWidget(self.btn_close_panel)
+        right_layout.addLayout(header_layout)
+        
         right_layout.addWidget(self.detail_panel)
         right_layout.addWidget(self.sim_panel)
         self.right_panel.hide()
         
         self.splitter.addWidget(self.right_panel)
         self.splitter.setSizes([800, 200])
+
+    def toggle_right_panel(self):
+        self.right_panel.setVisible(not self.right_panel.isVisible())
 
     def setup_chart(self, df: pd.DataFrame):
         if self.chart is None:
@@ -207,12 +241,6 @@ class SimulationSettingsDialog(QDialog):
         self.combo_strat = QComboBox()
         self.combo_strat.addItem("Без стратегії")
         
-        from utils.PathManager import PathManager
-        strat_dir = PathManager.get_strategies_dir()
-        if os.path.exists(strat_dir):
-            strats = [f for f in os.listdir(strat_dir) if f.endswith('.py')]
-            self.combo_strat.addItems(strats)
-            
         strat_layout.addWidget(self.combo_strat)
         strat_group.setLayout(strat_layout)
         layout.addWidget(strat_group)
@@ -275,6 +303,25 @@ class SimulationSettingsDialog(QDialog):
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
+
+    def showEvent(self, event):
+        self.update_strategies()
+        super().showEvent(event)
+
+    def update_strategies(self):
+        current = self.combo_strat.currentText()
+        self.combo_strat.clear()
+        self.combo_strat.addItem("Без стратегії")
+        
+        from utils.PathManager import PathManager
+        import os
+        strat_dir = PathManager.get_strategies_dir()
+        if os.path.exists(strat_dir):
+            strats = [f for f in os.listdir(strat_dir) if f.endswith('.py')]
+            self.combo_strat.addItems(strats)
+            
+        if current in [self.combo_strat.itemText(i) for i in range(self.combo_strat.count())]:
+            self.combo_strat.setCurrentText(current)
 
     def get_settings(self):
         multiplier = 10

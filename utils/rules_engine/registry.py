@@ -11,15 +11,15 @@ class IndicatorRegistry:
     _static_cache = {}
     _cached_df_hash = None
     
-    def __init__(self, data: pd.DataFrame):
+    def __init__(self, data: pd.DataFrame, is_backtest: bool = False):
         # Надійний хеш: кількість рядків + timestamp першого і останнього + сума цін закриття
         try:
             t1 = data['timestamp'].iloc[0] if 'timestamp' in data.columns else 0
             t2 = data['timestamp'].iloc[-1] if 'timestamp' in data.columns else 0
             c_sum = data['close'].sum() if 'close' in data.columns else 0
-            df_hash = hash((data.shape[0], data.shape[1], t1, t2, c_sum))
+            df_hash = hash((data.shape[0], data.shape[1], t1, t2, c_sum, is_backtest))
         except Exception:
-            df_hash = hash((data.shape[0], data.shape[1]))
+            df_hash = hash((data.shape[0], data.shape[1], is_backtest))
             
         if df_hash != IndicatorRegistry._cached_df_hash:
             IndicatorRegistry._static_cache = {}
@@ -35,7 +35,12 @@ class IndicatorRegistry:
         # Ініціалізуємо процесори, передаючи їм СПІЛЬНИЙ об'єкт
         self.processor = IndicatorProcessor(data=self.data, processed_data=self.processed_data)
         self.pattern_detector = PatternDetector(data=self.data, processed_data=self.processed_data)
-        self.algorithm_processor = AlgorithmProcessor(data=self.data, processed_data=self.processed_data)
+        
+        if is_backtest:
+            from utils.algorithms.indicators.BacktestAlgorithmProcessor import BacktestAlgorithmProcessor
+            self.algorithm_processor = BacktestAlgorithmProcessor(data=self.data, processed_data=self.processed_data)
+        else:
+            self.algorithm_processor = AlgorithmProcessor(data=self.data, processed_data=self.processed_data)
 
     def get_indicator(self, name: str):
         """Отримує колонку з датафрейму за її назвою (з кешу). Якщо немає - генерує."""

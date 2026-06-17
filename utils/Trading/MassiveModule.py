@@ -53,7 +53,7 @@ class MassiveModule:
     @_save_to_db
     @IndicatorDecorator
     @_handle_error
-    def _fetch_ohlcv(self, symbol, multiplier, timeframe, start_date=None, end_date=None, limit=None, adjusted=True, sort="asc"):
+    def _fetch_ohlcv(self, symbol, multiplier, timeframe, start_date=None, end_date=None, limit=50000, adjusted=True, sort="asc", internal_symbol=None):
         "Параметри: symbol - торговий символ (наприклад, 'C:EURUSD'), multiplier - множник, timeframe - таймфрейм (наприклад, 'minute'), start_date - початкова дата (формат 'YYYY-MM-DD'), end_date - кінцева дата (формат 'YYYY-MM-DD'), limit - максимальна кількість записів, adjusted - чи враховувати корекції, sort - порядок сортування ('asc' або 'desc')"
         
         self._check_rate_limit()
@@ -71,8 +71,14 @@ class MassiveModule:
 
         data = [vars(a) for a in aggs]
         df = pd.DataFrame(data)
-        symbol_clean = symbol.replace(":", "")[1:]
         
+        if internal_symbol:
+            symbol_clean = internal_symbol
+        else:
+            from utils.SymbolManager import SymbolManager
+            # Якщо internal_symbol не передано, спробуємо знайти найбільш прийнятний
+            symbol_clean = symbol.replace(":", "")[1:]
+            
         # Формуємо правильне ім'я таблиці (наприклад, 15m замість minute)
         suffix_map = {"minute": "m", "hour": "h", "day": "d"}
         suffix = f"{multiplier}{suffix_map.get(timeframe, timeframe)}"
@@ -85,7 +91,7 @@ class MassiveModule:
     #------------------------------ 
     
     @_handle_error
-    def fetch_ohlcv_auto_download(self, symbol, multiplier, timeframe, start_date=None, end_date=None, limit=None, adjusted=True, sort="asc", batch_size="30D", time_sleep=int(15)):
+    def fetch_ohlcv_auto_download(self, symbol, multiplier, timeframe, start_date=None, end_date=None, limit=None, adjusted=True, sort="asc", batch_size="30D", time_sleep=int(15), internal_symbol=None):
         """Автоматично завантажує дані про агрегації (OHLCV) з API та зберігає їх у базі даних.Розбиває завдання на частини, щоб уникнути проблем з обсягом даних. Параметри: symbol - торговий символ (наприклад, 'C:EURUSD'), multiplier - множник, timeframe - таймфрейм (наприклад, 'minute'), start_date - початкова дата (формат 'YYYY-MM-DD'), end_date - кінцева дата (формат 'YYYY-MM-DD'), adjusted - чи враховувати корекції, sort - порядок сортування ('asc' або 'desc'), batch_size - розмір кожного завантаження (наприклад, '50D' для 50 днів, рекомендовано використовувати тільки дні, щоб уникнути проблем з різною кількістю записів для різних таймфреймів), time_sleep - час у секундах для паузи між завантаженнями (щоб уникнути перевищення лімітів API)"""
 
         # Розбиваємо завдання на частини
@@ -105,7 +111,8 @@ class MassiveModule:
                 end_date=current_end.strftime('%Y-%m-%d'),
                 limit=limit,
                 adjusted=adjusted,
-                sort=sort
+                sort=sort,
+                internal_symbol=internal_symbol
             )
 
             current_start = current_end

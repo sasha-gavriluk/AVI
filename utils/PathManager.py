@@ -73,10 +73,10 @@ class PathManager:
         
         # Створюємо дефолтний порожній/базовий файл налаштувань
         default_settings = {
-            "trading_mode": {"type": "Standard", "bo_payout_percent": 80.0, "bo_bet_size": 10.0, "bo_expiration_bars": 1},
+            "trading_mode": {"type": "Standard", "bo_payout_percent": 80.0, "bo_bet_size": 10.0, "bo_expiration_bars": 1, "bo_fixed_time_enabled": False, "bo_fixed_time_minutes": 60},
             "risk_management": {"stop_loss_percent": 1.5, "max_drawdown_session": 5.0, "daily_loss_limit": 100.0},
-            "copilot": {"half_life_days": 90, "min_score_for_best": 0.6, "routine_interval_minutes": 60, "update_threshold_weight": 15.0, "active_strategies": []},
-            "downloader": {"massive_free_tier": True},
+            "copilot": {"half_life_days": 90, "min_score_for_best": 0.6, "update_threshold_weight": 15.0, "active_strategies": []},
+            "downloader": {"massive_free_tier": True, "massive_api_delay_minutes": 15},
             "notifications": {"telegram_enabled": False}
         }
         with open(os.path.join(config_dir, 'settings.json'), 'w', encoding='utf-8') as f:

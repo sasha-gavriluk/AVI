@@ -151,11 +151,12 @@ class MainAppWindow(QMainWindow):
     # ----------------------------------
     # Параметри: 
     # db_name (str): назва бд
-    # table_name (str): назва таблиці
-    @pyqtSlot(str, str)
-    def on_backtest_show_chart(self, db_name: str, table_name: str):
-        self._load_chart_from_action(db_name, table_name.replace("backtest_", "").rsplit("_", 2)[0])
-        self._show_trades_from_action(table_name)
+    # backtest_table (str): назва таблиці бектесту
+    # asset_table (str): назва оригінальної таблиці активу
+    @pyqtSlot(str, str, str)
+    def on_backtest_show_chart(self, db_name: str, backtest_table: str, asset_table: str):
+        self._load_chart_from_action(db_name, asset_table)
+        self._show_trades_from_action(backtest_table)
         self.tabs.setCurrentWidget(self.visual_registry.chart_tab)
 
     # ----------------------------------

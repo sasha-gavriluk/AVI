@@ -25,9 +25,12 @@ class CCXTModule:
             
         opts = {}
         if exid == "bybit":
-            opts = {"defaultType": "swap"}
+            opts = {"defaultType": "swap", "recvWindow": 10000}
             
-        self.exchange = getattr(ccxt, exid)({"options": opts})
+        self.exchange = getattr(ccxt, exid)({
+            "options": opts,
+            "adjustForTimeDifference": True
+        })
         self.ccxt_id = exid
 
     # ----------------------------------

@@ -20,9 +20,20 @@ class SettingsLogic:
                 "type": "Standard",
                 "bo_payout_percent": 80.0,
                 "bo_bet_size": 10.0,
-                "bo_expiration_bars": 1
+                "bo_expiration_bars": 1,
+                "bo_fixed_time_enabled": False,
+                "bo_fixed_time_minutes": 60,
+                "standard_sizing_type": "Фіксована сума ($)",
+                "standard_sizing_value": 1000.0,
+                "standard_commission_percent": 0.1,
+                "futures_sizing_type": "Фіксована маржа ($)",
+                "futures_sizing_value": 100.0,
+                "futures_leverage": 10,
+                "futures_taker_fee": 0.05,
+                "futures_maker_fee": 0.02
             },
             "risk_management": {
+                "initial_balance": 10000.0,
                 "stop_loss_percent": 1.5,
                 "max_drawdown_session": 5.0,
                 "daily_loss_limit": 100.0
@@ -30,14 +41,39 @@ class SettingsLogic:
             "copilot": {
                 "half_life_days": 90,
                 "min_score_for_best": 0.6,
-                "routine_interval_minutes": 60,
                 "update_threshold_weight": 15.0,
-                "active_strategies": []
+                "top_strategies_count": 5,
+                "min_trades": 10,
+                "min_trades_mode": "Global",
+                "min_trades_base_candles": 1000,
+                "min_trades_tolerance": 80,
+                "min_profit_factor": 1.0,
+                "active_strategies_tree": {
+                    "1m": [],
+                    "3m": [],
+                    "5m": [],
+                    "15m": [],
+                    "30m": [],
+                    "1h": [],
+                    "2h": [],
+                    "4h": [],
+                    "1d": []
+                },
+                "auto_learn_data_limits": {
+                    "1m": {"all_data": True, "candles": 1000},
+                    "5m": {"all_data": True, "candles": 1000},
+                    "15m": {"all_data": True, "candles": 1000},
+                    "1h": {"all_data": True, "candles": 1000},
+                    "4h": {"all_data": True, "candles": 1000},
+                    "1d": {"all_data": True, "candles": 1000}
+                }
             },
             "downloader": {
+                "update_mode": "polling",
                 "massive_free_tier": True,
                 "massive_free_requests": 5,
-                "massive_free_wait_minutes": 3
+                "massive_free_wait_minutes": 3,
+                "massive_api_delay_minutes": 15
             },
             "notifications": {
                 "telegram_enabled": False

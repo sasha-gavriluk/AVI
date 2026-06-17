@@ -9,13 +9,13 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QTextCursor, QClipboard
-from gui.visual.UiElements import NonWheelSpinBox, NonWheelDoubleSpinBox
+from gui.visual.UiElements import NonWheelSpinBox, NonWheelDoubleSpinBox, CheckableComboBox
 
 #==================================
 # TabBacktestVisual
 #==================================
 class TabBacktestVisual(QWidget):
-    request_show_chart = pyqtSignal(str, str)
+    request_show_chart = pyqtSignal(str, str, str)
     
     # ----------------------------------
     # __init__, ініціалізація вкладки
@@ -72,11 +72,14 @@ class TabBacktestVisual(QWidget):
         
         self.btn_save = QPushButton("💾 Зберегти")
         self.btn_load = QPushButton("📂 Відкрити")
+        self.btn_delete = QPushButton("🗑️ Видалити")
+        self.btn_delete.setStyleSheet("color: #ff453a;")
         self.btn_info = QPushButton("ℹ️ Довідка")
         
         editor_header.addWidget(self.btn_info)
         editor_header.addWidget(self.btn_save)
         editor_header.addWidget(self.btn_load)
+        editor_header.addWidget(self.btn_delete)
         
         bottom_layout.addLayout(editor_header)
         
@@ -111,7 +114,7 @@ class TabBacktestVisual(QWidget):
         
         table_row = QHBoxLayout()
         table_row.addWidget(QLabel("Актив:"))
-        self.table_combo = QComboBox()
+        self.table_combo = CheckableComboBox()
         table_row.addWidget(self.table_combo, stretch=1)
         
         table_row.addWidget(QLabel("ТФ:"))
@@ -127,6 +130,14 @@ class TabBacktestVisual(QWidget):
         name_layout.addWidget(name_label)
         name_layout.addWidget(self.test_name_input)
         right_layout.addLayout(name_layout)
+        
+        strat_layout = QHBoxLayout()
+        strat_label = QLabel("Файли Стратегій:")
+        self.strat_combo = CheckableComboBox()
+        self.strat_combo.setPlaceholderText("Використовувати код з редактора")
+        strat_layout.addWidget(strat_label)
+        strat_layout.addWidget(self.strat_combo, stretch=1)
+        right_layout.addLayout(strat_layout)
         
         btn_layout = QHBoxLayout()
         self.btn_run = QPushButton("▶ Розрахувати")
@@ -519,6 +530,89 @@ class TabBacktestVisual(QWidget):
                 
         btn_load.clicked.connect(on_load)
         tree_widget.itemDoubleClicked.connect(on_load)
+        btn_cancel.clicked.connect(dialog.reject)
+        dialog.exec()
+
+    def delete_strategy(self, load_dir):
+        os.makedirs(load_dir, exist_ok=True)
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Видалити стратегію")
+        dialog.setMinimumSize(450, 400)
+        
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Оберіть файл стратегії для видалення:"))
+        
+        tree_widget = QTreeWidget()
+        tree_widget.setHeaderHidden(True)
+        
+        has_files = False
+        dir_items = {".": tree_widget.invisibleRootItem()}
+        
+        for root, dirs, filenames in os.walk(load_dir):
+            rel_dir = os.path.relpath(root, load_dir)
+            if rel_dir != ".":
+                parent_dir = os.path.dirname(rel_dir)
+                if not parent_dir: parent_dir = "."
+                parent_item = dir_items.get(parent_dir, tree_widget.invisibleRootItem())
+                dir_item = QTreeWidgetItem(parent_item, [os.path.basename(rel_dir)])
+                dir_item.setData(0, Qt.ItemDataRole.UserRole, "dir")
+                dir_items[rel_dir] = dir_item
+                
+            for filename in sorted(filenames):
+                if filename.endswith('.py') or filename.endswith('.txt'):
+                    has_files = True
+                    parent_item = dir_items.get(rel_dir, tree_widget.invisibleRootItem())
+                    file_item = QTreeWidgetItem(parent_item, [filename])
+                    file_item.setData(0, Qt.ItemDataRole.UserRole, "file")
+                    rel_path = filename if rel_dir == "." else os.path.join(rel_dir, filename).replace("\\", "/")
+                    file_item.setData(0, Qt.ItemDataRole.UserRole + 1, rel_path)
+                    
+        if not has_files:
+            QTreeWidgetItem(tree_widget, ["Немає збережених стратегій"])
+            tree_widget.setEnabled(False)
+                
+        layout.addWidget(tree_widget)
+        
+        btn_layout = QHBoxLayout()
+        btn_delete = QPushButton("Видалити")
+        btn_delete.setStyleSheet("background-color: #ff453a; color: white; font-weight: bold;")
+        btn_cancel = QPushButton("Скасувати")
+        btn_layout.addWidget(btn_delete)
+        btn_layout.addWidget(btn_cancel)
+        layout.addLayout(btn_layout)
+        
+        def on_delete():
+            selected = tree_widget.currentItem()
+            if not selected or not tree_widget.isEnabled(): return
+            if selected.data(0, Qt.ItemDataRole.UserRole) == "dir":
+                selected.setExpanded(not selected.isExpanded())
+                return
+                
+            file_name = selected.data(0, Qt.ItemDataRole.UserRole + 1)
+            if not file_name: return
+            file_path = os.path.join(load_dir, file_name)
+            
+            confirm = QMessageBox.question(
+                dialog, 
+                "Підтвердження видалення", 
+                f"Ви впевнені, що хочете видалити стратегію:\n{file_name}?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            
+            if confirm == QMessageBox.StandardButton.Yes:
+                try:
+                    os.remove(file_path)
+                    self.safe_append_html(f"<span style='color: #ff453a;'>Стратегію видалено: {file_name}</span>")
+                    if selected.parent():
+                        selected.parent().removeChild(selected)
+                    else:
+                        tree_widget.invisibleRootItem().removeChild(selected)
+                except Exception as e:
+                    self.safe_append_html(f"Помилка видалення: {e}")
+                
+        btn_delete.clicked.connect(on_delete)
+        tree_widget.itemDoubleClicked.connect(on_delete)
         btn_cancel.clicked.connect(dialog.reject)
         dialog.exec()
 

@@ -355,6 +355,10 @@ class TabCopilotVisual(QWidget):
     # df: pandas DataFrame
     # best_comps: dict
     def update_stats_ui(self, df, best_comps):
+        if df is None:
+            import pandas as pd
+            df = pd.DataFrame()
+            
         if not df.empty:
             wr_avg = df['win_rate'].mean()
             pf_avg = df['profit_factor'].mean()
