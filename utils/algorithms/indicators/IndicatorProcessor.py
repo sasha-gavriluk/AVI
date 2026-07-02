@@ -286,7 +286,7 @@ class IndicatorProcessor:
     # Кластеризація ринку (Market States)
     # ----------------------------------
 
-    def add_market_state_linear(self, period=20, slope_threshold=0.05, vol_threshold=1.5):
+    def add_market_state_linear(self, period=20, atr_period=14, slope_atr_threshold=0.07, vol_threshold=1.5):
         """
         Метод лінійної кластеризації станів ринку.
         Визначає стан ринку на основі нормалізованого нахилу лінійної регресії та волатильності.
@@ -313,9 +313,6 @@ class IndicatorProcessor:
 
         slope = close_prices.rolling(window=period).apply(calc_slope, raw=True)
 
-        # Нормалізуємо нахил (відсоток зміни за одиницю часу)
-        normalized_slope = (slope / close_prices) * 100
-
         # 2. Розрахунок волатильності
         sma = close_prices.rolling(window=period).mean()
         std_dev = close_prices.rolling(window=period).std()
@@ -326,13 +323,24 @@ class IndicatorProcessor:
         avg_volatility = normalized_volatility.rolling(window=long_period).mean()
         volatility_ratio = normalized_volatility / avg_volatility
 
-        # 3. Кластеризація (Маркування станів)
+        # 3. Отримуємо ATR для динамічного порогу
+        atr_col = f'ATR_{atr_period}'
+        if atr_col in self.processed_data.columns:
+            atr = self.processed_data[atr_col]
+        else:
+            tr1 = self.data['high'] - self.data['low']
+            tr2 = (self.data['high'] - close_prices.shift()).abs()
+            tr3 = (self.data['low'] - close_prices.shift()).abs()
+            tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+            atr = tr.rolling(window=atr_period).mean()
+
+        # 4. Кластеризація (Маркування станів)
         states = pd.Series(0, index=self.data.index)
 
-        # Логіка станів
+        # Логіка станів (Динамічний поріг від ATR)
         vol_condition = volatility_ratio > vol_threshold
-        uptrend_condition = (normalized_slope > slope_threshold) & (~vol_condition)
-        downtrend_condition = (normalized_slope < -slope_threshold) & (~vol_condition)
+        uptrend_condition = (slope > atr * slope_atr_threshold) & (~vol_condition)
+        downtrend_condition = (slope < -atr * slope_atr_threshold) & (~vol_condition)
 
         states.loc[uptrend_condition] = 1
         states.loc[downtrend_condition] = -1
@@ -343,7 +351,10 @@ class IndicatorProcessor:
         column_vol = self._get_unique_column_name(f'Market_VolRatio_{period}')
         column_state = self._get_unique_column_name(f'Market_State_Linear_{period}')
 
-        self.processed_data[column_slope] = normalized_slope
+        # Зберігаємо відношення нахилу до ATR як індикатор "Сили Тренду"
+        slope_atr_ratio = slope / atr
+        
+        self.processed_data[column_slope] = slope_atr_ratio
         self.processed_data[column_vol] = volatility_ratio
         self.processed_data[column_state] = states
 

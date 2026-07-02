@@ -153,12 +153,29 @@ class TabCopilotVisual(QWidget):
         self.cb_gen_signals = QCheckBox("Генерація сигналів")
         self.cb_gen_signals.setChecked(self.cb_states.get("cb_gen_signals", False))
         
+        # New Combo for Signal Source
+        signal_source_layout = QHBoxLayout()
+        lbl_source = QLabel("Джерело сигналів:")
+        lbl_source.setStyleSheet("color: #CDD6F4;")
+        from PyQt6.QtWidgets import QComboBox
+        self.combo_signal_source = QComboBox()
+        self.combo_signal_source.addItems(["Класичні Стратегії", "Нейромережі (Golden Trio)"])
+        self.combo_signal_source.setStyleSheet("background-color: #181825; color: #CDD6F4; padding: 3px; border-radius: 3px;")
+        
+        saved_mode = self.cb_states.get("signal_mode", "Класичні Стратегії")
+        self.combo_signal_source.setCurrentText(saved_mode)
+        self.combo_signal_source.currentTextChanged.connect(self.save_settings)
+        
+        signal_source_layout.addWidget(lbl_source)
+        signal_source_layout.addWidget(self.combo_signal_source)
+        
         for cb in [self.cb_auto_mode, self.cb_auto_gen, self.cb_download_ccxt, self.cb_download_massive, self.cb_gen_signals]:
             cb.setStyleSheet("color: #CDD6F4;")
             cb.stateChanged.connect(self.save_settings)
             cb.stateChanged.connect(self._update_routine_ui)
             settings_layout.addWidget(cb)
             
+        settings_layout.addLayout(signal_source_layout)
         left_layout.addWidget(settings_group)
         left_layout.addStretch()
         
@@ -289,7 +306,8 @@ class TabCopilotVisual(QWidget):
             "cb_auto_gen": self.cb_auto_gen.isChecked(),
             "cb_download_ccxt": self.cb_download_ccxt.isChecked(),
             "cb_download_massive": self.cb_download_massive.isChecked(),
-            "cb_gen_signals": self.cb_gen_signals.isChecked()
+            "cb_gen_signals": self.cb_gen_signals.isChecked(),
+            "signal_mode": self.combo_signal_source.currentText()
         }
         
         try:

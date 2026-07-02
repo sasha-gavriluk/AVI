@@ -4,6 +4,7 @@ from gui.visual.TabDownloaderVisual import TabDownloaderVisual
 from gui.visual.TabChartVisual import TabChartVisual
 from gui.visual.TabBacktestVisual import TabBacktestVisual
 from gui.visual.TabCopilotVisual import TabCopilotVisual
+from gui.visual.TabLiveAlgorithmicVisual import TabLiveAlgorithmicVisual
 
 #==================================
 # VisualRegistry
@@ -20,3 +21,4 @@ class VisualRegistry:
         self.chart_tab = TabChartVisual()
         self.backtest_tab = TabBacktestVisual()
         self.copilot_tab = TabCopilotVisual()
+        self.live_algo_tab = TabLiveAlgorithmicVisual()

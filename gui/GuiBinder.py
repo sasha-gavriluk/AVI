@@ -30,6 +30,7 @@ class GuiBinder:
         self._bind_chart()
         self._bind_backtest()
         self._bind_copilot()
+        self._bind_live_algo()
         
     # ----------------------------------
     # _bind_explorer, зв'язування вкладки провідника
@@ -1448,6 +1449,22 @@ class GuiBinder:
         QTimer.singleShot(500, logic.request_stats_async)
 
     # ----------------------------------
+    # _bind_live_algo, зв'язування вкладки Авто-Трейдінг
+    # ----------------------------------
+    def _bind_live_algo(self):
+        tab = self.v.live_algo_tab
+        logic = self.l.live_algo
+        
+        def on_analyze():
+            assets = [a.strip() for a in tab.assets_input.text().split(',') if a.strip()]
+            if not assets:
+                return
+            tab.show_loading()
+            logic.request_analysis(assets, tab.display_results)
+            
+        tab.btn_analyze.clicked.connect(on_analyze)
+
+    # ----------------------------------
     # attach_to_tabs, додавання вкладок до QTabWidget
     # ----------------------------------
     # Параметри:
@@ -1458,4 +1475,5 @@ class GuiBinder:
         tabs_widget.addTab(self.v.chart_tab, "Графік (finplot)")
         tabs_widget.addTab(self.v.backtest_tab, "Тестер стратегій")
         tabs_widget.addTab(self.v.copilot_tab, "Автономний Копілот")
+        tabs_widget.addTab(self.v.live_algo_tab, "Авто-Трейдінг (NN)")
         tabs_widget.addTab(self.v.settings_tab, "Налаштування")
