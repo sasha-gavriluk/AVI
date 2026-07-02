@@ -336,38 +336,79 @@ class CopilotSchedulerThread(QThread):
                 import json, os
                 from utils.PathManager import PathManager
                 active_strategies_tree = {}
+                signal_mode = "Класичні Стратегії"
                 try:
                     settings_path = PathManager.get_settings_path()
                     if os.path.exists(settings_path):
                         with open(settings_path, 'r', encoding='utf-8') as f:
                             settings_data = json.load(f)
                             active_strategies_tree = settings_data.get("copilot", {}).get("active_strategies_tree", {})
+                            signal_mode = settings_data.get("copilot_view", {}).get("signal_mode", "Класичні Стратегії")
                 except Exception as e:
                     self.log_signal.emit(f"⚠️ [Рутина] Не вдалося завантажити налаштування: {e}")
 
-                has_any_strategies = any(len(strats) > 0 for strats in active_strategies_tree.values())
-                
-                if has_any_strategies:
-                    from utils.notification_service import TelegramNotifier
-                    notifier = TelegramNotifier()
-                    try:
-                        target_assets = settings_data.get("copilot", {}).get("target_assets", [])
-                        
-                        # Запускаємо сканування для кожного таймфрейму, де є стратегії
-                        for tf, strats in active_strategies_tree.items():
-                            if strats:
-                                self.log_signal.emit(f"🔍 [Рутина] Сканування для таймфрейму {tf}...")
-                                copilot.scan_markets_for_signals(
-                                    strats, 
-                                    notifier,
-                                    target_assets=target_assets,
-                                    target_timeframes=[tf]
-                                )
-                        self.log_signal.emit("✅ [Рутина] Сканування завершено, звіти відправлено.")
-                    except Exception as e:
-                        self.log_signal.emit(f"❌ [Рутина] Помилка сканування: {e}")
+                from utils.notification_service import TelegramNotifier
+                notifier = TelegramNotifier()
+                target_assets = settings_data.get("copilot", {}).get("target_assets", [])
+
+                if signal_mode == "Класичні Стратегії":
+                    has_any_strategies = any(len(strats) > 0 for strats in active_strategies_tree.values())
+                    if has_any_strategies:
+                        try:
+                            # Запускаємо сканування для кожного таймфрейму, де є стратегії
+                            for tf, strats in active_strategies_tree.items():
+                                if strats:
+                                    self.log_signal.emit(f"🔍 [Рутина] Сканування для таймфрейму {tf}...")
+                                    copilot.scan_markets_for_signals(
+                                        strats, 
+                                        notifier,
+                                        target_assets=target_assets,
+                                        target_timeframes=[tf]
+                                    )
+                            self.log_signal.emit("✅ [Рутина] Сканування завершено, звіти відправлено.")
+                        except Exception as e:
+                            self.log_signal.emit(f"❌ [Рутина] Помилка сканування: {e}")
+                    else:
+                        self.log_signal.emit("⚠️ [Рутина] Немає активних стратегій для сканування.")
                 else:
-                    self.log_signal.emit("⚠️ [Рутина] Немає активних стратегій для сканування.")
+                    # Режим Нейромереж
+                    self.log_signal.emit("🧠 [Рутина] Аналіз ринків через Нейромережі (Golden Trio)...")
+                    try:
+                        from utils.DataBaseManager import DataBaseManager
+                        from utils.algorithms.indicators.IndicatorProcessor import IndicatorProcessor
+                        from utils.algorithms.indicators.PatternDetector import PatternDetector
+                        from utils.algorithms.indicators.BacktestAlgorithmProcessor import BacktestAlgorithmProcessor
+                        from utils.algorithms.CopilotAlgorithmicLogic import CopilotAlgorithmicLogic
+                        
+                        nn_logic = CopilotAlgorithmicLogic(use_context_rules=True)
+                        db_path = PathManager.get_db_path()
+                        
+                        with DataBaseManager(db_path) as db:
+                            for asset in target_assets:
+                                df = db.get_data_by_number_range(asset, 2000)
+                                if df is None or len(df) < 100:
+                                    continue
+                                
+                                processor = IndicatorProcessor(df, df.copy())
+                                df = processor.process_data()
+                                detector = PatternDetector(df, df)
+                                df = detector.process_data()
+                                algo_processor = BacktestAlgorithmProcessor(df, df, algorithm_params=['Order_Blocks', 'Fair_Value_Gaps', 'Market_Structure'])
+                                df = algo_processor.process_data()
+                                
+                                window = df.iloc[-10:]
+                                res = nn_logic.analyze_window(window, asset=asset)
+                                signal = res.get('signal')
+                                
+                                if signal:
+                                    prob = res.get('probabilities', {}).get(signal.lower(), 0.0)
+                                    price = window['close'].iloc[-1]
+                                    tg_msg = f"🔥 <b>LIVE SIGNAL</b> 🔥\n\n📌 <b>Актив:</b> {asset}\n📈 <b>Тип:</b> {signal}\n💰 <b>Ціна:</b> {price:.5f}\n🧠 <b>Впевненість NN:</b> {prob:.2f}\n⚖️ <b>Захист (MR/FB/RS):</b> Пройдено"
+                                    notifier.send_message(tg_msg)
+                                    self.log_signal.emit(f"🔔 СИГНАЛ {asset}: {signal} за {price:.5f} (Впевненість: {prob:.2f})")
+                        self.log_signal.emit("✅ [Рутина] Сканування нейромережами завершено.")
+                    except Exception as e:
+                        self.log_signal.emit(f"❌ [Рутина] Помилка NN сканування: {e}")
 
             if not self.is_running: break
 

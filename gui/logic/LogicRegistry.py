@@ -4,6 +4,7 @@ from gui.logic.DownloaderLogic import DownloaderLogic
 from gui.logic.ChartLogic import ChartLogic
 from gui.logic.BacktestLogic import BacktestLogic
 from gui.logic.CopilotLogic import CopilotLogic
+from gui.logic.LiveAlgorithmicLogic import LiveAlgorithmicLogic
 
 #==================================
 # LogicRegistry
@@ -21,3 +22,4 @@ class LogicRegistry:
         self.downloader = DownloaderLogic()
         self.chart = ChartLogic()
         self.backtest = BacktestLogic(self.copilot)
+        self.live_algo = LiveAlgorithmicLogic()
