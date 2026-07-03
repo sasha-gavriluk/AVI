@@ -1,11 +1,26 @@
 import os
+import json
 import time
 import pandas as pd
-from PyQt6.QtCore import QObject, pyqtSignal, QThread
+from PyQt6.QtCore import QObject, pyqtSignal, QThread, QTimer
 
 from utils.DataBaseManager import DataBaseManager
 from utils.gap_analyzer import GapAnalyzer
 from utils.Trading.WebsocketStreamer import WebsocketStreamerThread
+from utils.PathManager import PathManager
+
+
+def _load_settings() -> dict:
+    """Читає settings.json, повертає {} якщо файл відсутній/пошкоджений."""
+    config_path = PathManager.get_settings_path()
+    if not os.path.exists(config_path):
+        return {}
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
 
 class GapAnalyzerThread(QThread):
     log_signal = pyqtSignal(str)
@@ -60,7 +75,6 @@ class GapAnalyzerThread(QThread):
                 if not last_df.empty and 'timestamp' in last_df.columns:
                     try:
                         last_time = int(last_df['timestamp'].iloc[0])
-                        import time
                         current_time_ms = int(time.time() * 1000)
                         effective_time_ms = current_time_ms - (self.api_delay_minutes * 60000)
                         # Якщо пройшло більше часу ніж один таймфрейм
@@ -145,21 +159,10 @@ class AutoDownloaderThread(QThread):
                         continue
                         
                 if use_mod == "massive":
-                    import json, os
-                    from utils.PathManager import PathManager
-                    massive_free_tier = True
-                    massive_reqs = 5
-                    massive_wait = 3
-                    try:
-                        config_path = PathManager.get_settings_path()
-                        if os.path.exists(config_path):
-                            with open(config_path, 'r', encoding='utf-8') as f:
-                                s_data = json.load(f)
-                                dl = s_data.get("downloader", {})
-                                massive_free_tier = dl.get("massive_free_tier", True)
-                                massive_reqs = dl.get("massive_free_requests", 5)
-                                massive_wait = dl.get("massive_free_wait_minutes", 3)
-                    except Exception: pass
+                    dl = _load_settings().get("downloader", {})
+                    massive_free_tier = dl.get("massive_free_tier", True)
+                    massive_reqs = dl.get("massive_free_requests", 5)
+                    massive_wait = dl.get("massive_free_wait_minutes", 3)
 
                     massive_mod = MassiveModule(dbm, massive_key, free_tier=massive_free_tier, free_requests=massive_reqs, free_wait_minutes=massive_wait) if massive_key else None
                     if not massive_mod:
@@ -237,10 +240,10 @@ class AutoDownloaderThread(QThread):
 
 class CopilotSchedulerThread(QThread):
     """
-    Фоновий потік для автоматичної рутини Копілота.
-    Виконує:
-    1. Генерацію стратегій
-    2. Тестування (через TradingCopilot)
+    Фоновий потік для автоматичної рутини Копілота. На кожній ітерації:
+    1-2. Аналіз прогалин у БД і автозавантаження (CCXT/Massive)
+    3-4. Сканування ринків через режим "Нейромережі (Golden Trio)" + Telegram
+    5. Очікування закриття наступної свічки
     """
     log_signal = pyqtSignal(str)
     cycle_started = pyqtSignal()
@@ -252,33 +255,21 @@ class CopilotSchedulerThread(QThread):
         self.is_running = True
 
     def run(self):
+        # StrategyGenerator/rules_engine видалено з проєкту (класичні
+        # стратегії заморожено). Довідка: Code/COPILOT_ARCHITECTURE.md.
         from utils.algorithms.backtesting.TradingCopilot import TradingCopilot
-        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
-        # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): StrategyGenerator.py
-        # заморожений (весь код обгорнутий у рядковий літерал), клас
-        # більше не існує — імпорт і створення екземпляра прибрано, інакше
-        # рутина впаде з AttributeError одразу при старті потоку (навіть
-        # у режимі "Нейромережі"). Довідка: Code/COPILOT_ARCHITECTURE.md.
-        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
-        # from utils.algorithms.backtesting.StrategyGenerator import StrategyGenerator
 
         copilot = TradingCopilot(db_path=self.db_path)
-        # generator = StrategyGenerator(copilot=copilot)
 
         while self.is_running:
-            import json, os
-            try:
-                from utils.PathManager import PathManager
-                config_path = PathManager.get_settings_path()
-                if os.path.exists(config_path):
-                    with open(config_path, 'r', encoding='utf-8') as f:
-                        settings_data = json.load(f)
-                        copilot_view = settings_data.get("copilot_view", {})
-                        if copilot_view:
-                            self.config_states.update(copilot_view)
-                        copilot_settings = settings_data.get("copilot", {})
-            except Exception: pass
-            
+            # Один читання settings.json на весь цикл — раніше файл
+            # перечитувався тут, у кроці 3-4 і в розрахунку часу очікування
+            # окремо (3 рази за одну й ту саму ітерацію).
+            settings_data = _load_settings()
+            copilot_view = settings_data.get("copilot_view", {})
+            if copilot_view:
+                self.config_states.update(copilot_view)
+
             self.cycle_started.emit()
             self.log_signal.emit("🔄 [Рутина] Початок нового циклу...")
             
@@ -300,8 +291,8 @@ class CopilotSchedulerThread(QThread):
 
             if has_download:
                 self.log_signal.emit("🔍 [Рутина] Крок 1-2: Аналіз прогалин та автозавантаження даних...")
-                # Synchronous Gap Analysis
-                from gui.logic.copilot_service import GapAnalyzerThread, AutoDownloaderThread
+                # Synchronous Gap Analysis (GapAnalyzerThread/AutoDownloaderThread
+                # визначені вище в цьому ж модулі — імпорт не потрібен)
                 try:
                     t_assets = settings_data.get("copilot", {}).get("target_assets", [])
                     t_tfs = settings_data.get("copilot", {}).get("target_timeframes", [])
@@ -340,35 +331,17 @@ class CopilotSchedulerThread(QThread):
 
             if gen_signals:
                 self.log_signal.emit("🔍 [Рутина] Крок 3-4: Сканування ринків та пошук сигналів...")
-                import json, os
-                from utils.PathManager import PathManager
-                active_strategies_tree = {}
-                signal_mode = "Класичні Стратегії"
-                try:
-                    settings_path = PathManager.get_settings_path()
-                    if os.path.exists(settings_path):
-                        with open(settings_path, 'r', encoding='utf-8') as f:
-                            settings_data = json.load(f)
-                            active_strategies_tree = settings_data.get("copilot", {}).get("active_strategies_tree", {})
-                            signal_mode = settings_data.get("copilot_view", {}).get("signal_mode", "Класичні Стратегії")
-                except Exception as e:
-                    self.log_signal.emit(f"⚠️ [Рутина] Не вдалося завантажити налаштування: {e}")
+                active_strategies_tree = settings_data.get("copilot", {}).get("active_strategies_tree", {})
+                signal_mode = settings_data.get("copilot_view", {}).get("signal_mode", "Класичні Стратегії")
+                target_assets = settings_data.get("copilot", {}).get("target_assets", [])
 
                 from utils.notification_service import TelegramNotifier
                 notifier = TelegramNotifier()
-                target_assets = settings_data.get("copilot", {}).get("target_assets", [])
 
                 if signal_mode == "Класичні Стратегії":
-                    # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
-                    # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): режим "Класичні
-                    # Стратегії" тимчасово заморожений — TradingCopilot.
-                    # scan_markets_for_signals() недосяжний (rules_engine
-                    # заморожений). Якщо в settings.json лишився старий
-                    # signal_mode, рутина просто пропускає крок замість
-                    # падіння. Перемкни на "Нейромережі (Golden Trio)" у
-                    # вкладці Копілота. Довідка: Code/COPILOT_ARCHITECTURE.md.
-                    # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
-                    self.log_signal.emit("⏸️ [Рутина] Режим 'Класичні Стратегії' тимчасово заморожений. Перемкни на 'Нейромережі (Golden Trio)'.")
+                    # Режим видалено разом із rules_engine — якщо в settings.json
+                    # лишився старий signal_mode, просто пропускаємо крок.
+                    self.log_signal.emit("⏸️ [Рутина] Режим 'Класичні Стратегії' видалено. Перемкни на 'Нейромережі (Golden Trio)'.")
                 else:
                     # Режим Нейромереж
                     self.log_signal.emit("🧠 [Рутина] Аналіз ринків через Нейромережі (Golden Trio)...")
@@ -412,41 +385,21 @@ class CopilotSchedulerThread(QThread):
             if not self.is_running: break
 
             if auto_gen:
-                # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
-                # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): авто-генерація
-                # випадкових стратегій. run_random_training()/StrategyGenerator
-                # заморожені (rules_engine заморожений) — крок пропускається.
-                # Довідка: Code/COPILOT_ARCHITECTURE.md.
-                # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
-                self.log_signal.emit("⏸️ [Рутина] Крок 5 (Авто-генерація стратегій) тимчасово заморожений.")
-                # try:
-                #     copilot.run_random_training(generator, n_strategies=100)
-                #     self.log_signal.emit("✅ [Рутина] Тренування завершено. Найкращі стратегії збережено в папці 'Copilot'.")
-                # except Exception as e:
-                #     self.log_signal.emit(f"❌ [Рутина] Помилка генерації: {e}")
+                # Авто-генерація стратегій видалена разом із rules_engine.
+                self.log_signal.emit("⏸️ [Рутина] Крок 5 (Авто-генерація стратегій) видалено.")
             
             # Розумне очікування нової свічки
-            import time
             current_time = time.time()
             wait_seconds = 3600 # дефолт, якщо щось піде не так
-            
+
             try:
-                import json, os
-                from utils.PathManager import PathManager
-                config_path = PathManager.get_settings_path()
-                tfs = []
+                tfs = settings_data.get("copilot", {}).get("target_timeframes", [])
                 api_delay = 0
-                if os.path.exists(config_path):
-                    with open(config_path, 'r', encoding='utf-8') as f:
-                        local_settings = json.load(f)
-                        tfs = local_settings.get("copilot", {}).get("target_timeframes", [])
-                        if use_massive:
-                            dl_settings = local_settings.get("downloader", {})
-                            if dl_settings.get("massive_free_tier", True):
-                                api_delay = dl_settings.get("massive_api_delay_minutes", 15)
-                            else:
-                                api_delay = 0
-                        
+                if use_massive:
+                    dl_settings = settings_data.get("downloader", {})
+                    if dl_settings.get("massive_free_tier", True):
+                        api_delay = dl_settings.get("massive_api_delay_minutes", 15)
+
                 if not tfs:
                     tfs = ["15m"] # За замовчуванням орієнтуємось на 15 хв
                     
@@ -496,35 +449,22 @@ class CopilotService(QObject):
         self.websocket_thread = None
 
     def analyze_database(self, db_path: str, use_ccxt: bool = False, use_massive: bool = False):
-        import json, os
-        from utils.PathManager import PathManager
-        
         if hasattr(self, '_gap_analyzer_thread') and self._gap_analyzer_thread.isRunning():
             self.log_update.emit("⚠️ Аналіз бази вже виконується.")
             return
-            
+
         self.status_update.emit("Аналіз бази даних...")
         self.log_update.emit(f"🔍 Запуск аналізу бази: {os.path.basename(db_path)}")
-        
+
+        settings_data = _load_settings()
+        target_assets = settings_data.get("copilot", {}).get("target_assets", [])
+        target_timeframes = settings_data.get("copilot", {}).get("target_timeframes", [])
+
         api_delay = 0
-        target_assets = None
-        target_timeframes = None
-        try:
-            config_path = PathManager.get_settings_path()
-            if os.path.exists(config_path):
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    settings_data = json.load(f)
-                    
-                    target_assets = settings_data.get("copilot", {}).get("target_assets", [])
-                    target_timeframes = settings_data.get("copilot", {}).get("target_timeframes", [])
-                    
-                    if use_massive:
-                        dl_settings = settings_data.get("downloader", {})
-                        if dl_settings.get("massive_free_tier", True):
-                            api_delay = dl_settings.get("massive_api_delay_minutes", 15)
-                        else:
-                            api_delay = 0
-        except Exception: pass
+        if use_massive:
+            dl_settings = settings_data.get("downloader", {})
+            if dl_settings.get("massive_free_tier", True):
+                api_delay = dl_settings.get("massive_api_delay_minutes", 15)
         
         self._gap_analyzer_thread = GapAnalyzerThread(
             db_path, 
@@ -593,20 +533,10 @@ class CopilotService(QObject):
             self.start_websocket_stream(getattr(self, '_websocket_provider', 'massive'), getattr(self, '_websocket_symbols', []))
 
     def start_scheduler(self, db_path, config_states):
-        import json, os
-        from utils.PathManager import PathManager
-        
         # Перевірка режиму оновлення даних
-        update_mode = "polling"
-        target_assets = []
-        try:
-            config_path = PathManager.get_settings_path()
-            if os.path.exists(config_path):
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    settings_data = json.load(f)
-                    update_mode = settings_data.get("downloader", {}).get("update_mode", "polling")
-                    target_assets = settings_data.get("copilot", {}).get("target_assets", [])
-        except Exception: pass
+        settings_data = _load_settings()
+        update_mode = settings_data.get("downloader", {}).get("update_mode", "polling")
+        target_assets = settings_data.get("copilot", {}).get("target_assets", [])
 
         if update_mode == "websockets":
             self.log_update.emit("📡 Режим Websockets увімкнено. Підготовка: скачування історії через API...")
@@ -638,8 +568,6 @@ class CopilotService(QObject):
         
         # Обробка збереження пакету тіків у БД
         def on_flush_ticks(sym, ticks):
-            import pandas as pd
-            from utils.PathManager import PathManager
             dbm = DataBaseManager(PathManager.get_db_path())
             table_name = f"{sym.replace(':', '')}_ticks"
             df = pd.DataFrame(ticks)
@@ -647,11 +575,9 @@ class CopilotService(QObject):
             dbm.disconnect()
 
         self.websocket_thread.flush_ticks_signal.connect(on_flush_ticks)
-        
+
         # Обробка закритої свічки - зберігаємо в БД
         def on_candle_closed(table_name, closed_candle):
-            import pandas as pd
-            from utils.PathManager import PathManager
             dbm = DataBaseManager(PathManager.get_db_path())
             df = pd.DataFrame([closed_candle])
             dbm.insert_data_from_pandas_auto(table_name, df)
@@ -670,8 +596,6 @@ class CopilotService(QObject):
         self.status_update.emit(f"Live Stream ({provider})...")
         
         # Запускаємо таймер для одноразового завантаження пропущеної (перехідної) свічки
-        import time
-        from PyQt6.QtCore import QTimer
         current_time = time.time()
         seconds_to_next_minute = 60 - (current_time % 60)
         # Додаємо 5 секунд буферу для того, щоб біржа встигла закрити свічку
