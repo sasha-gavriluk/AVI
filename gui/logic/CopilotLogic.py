@@ -19,60 +19,72 @@ class CopilotLogic(QObject):
         self.trading_copilot = TradingCopilot(db_path=PathManager.get_db_path())
         self.service = CopilotService()
         self._scan_workers = {}
-        self.service.trigger_signal_scan.connect(self._on_trigger_signal_scan)
-        
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): live-тригер сканування
+        # класичних стратегій по закритій свічці (websocket-режим).
+        # _on_trigger_signal_scan нижче тепер лише логує повідомлення,
+        # з'єднання сигналу закоментовано, щоб не створювався ScanWorker,
+        # який усе одно впав би (scan_markets_for_signals заморожений).
+        # Довідка: Code/COPILOT_ARCHITECTURE.md, Code/REFACTOR_LOG.md.
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        # self.service.trigger_signal_scan.connect(self._on_trigger_signal_scan)
+
     def _on_trigger_signal_scan(self, tf_str: str):
-        from utils.PathManager import PathManager
-        import json, os
-        
-        active_strategies = []
-        target_assets = []
-        try:
-            settings_path = PathManager.get_settings_path()
-            if os.path.exists(settings_path):
-                with open(settings_path, 'r', encoding='utf-8') as f:
-                    settings_data = json.load(f)
-                    active_strategies = settings_data.get("copilot", {}).get("active_strategies_tree", {}).get(tf_str, [])
-                    target_assets = settings_data.get("copilot", {}).get("target_assets", [])
-        except Exception as e:
-            self.service.log_update.emit(f"⚠️ Помилка завантаження налаштувань для сканування: {e}")
-            
-        if active_strategies:
-            self.service.log_update.emit(f"🔍 Запуск сканування стратегій для {tf_str}...")
-            
-            from PyQt6.QtCore import QThread
-            from utils.notification_service import TelegramNotifier
-            
-            class ScanWorker(QThread):
-                def __init__(self, copilot, strats, assets, tf):
-                    super().__init__()
-                    self.copilot = copilot
-                    self.strats = strats
-                    self.assets = assets
-                    self.tf = tf
-                    self.notifier = TelegramNotifier()
-                def run(self):
-                    try:
-                        self.copilot.scan_markets_for_signals(
-                            self.strats,
-                            self.notifier,
-                            target_assets=self.assets,
-                            target_timeframes=[self.tf]
-                        )
-                    except Exception as e:
-                        print(f"Signal scan error: {e}")
-                        
-            # Keep reference to avoid garbage collection
-            worker = ScanWorker(self.trading_copilot, active_strategies, target_assets, tf_str)
-            self._scan_workers[tf_str] = worker
-            
-            def on_finished(t=tf_str):
-                self.service.log_update.emit(f"✅ Сканування {t} завершено.")
-                if t in self._scan_workers:
-                    del self._scan_workers[t]
-                    
-            worker.finished.connect(on_finished)
-            worker.start()
+        # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): див. коментар у __init__ —
+        # сигнал, що викликав цей метод, більше не підключений.
+        self.service.log_update.emit(f"⏸️ Сканування класичних стратегій ({tf_str}) тимчасово заморожене.")
+        return
+
+        # active_strategies = []
+        # target_assets = []
+        # try:
+        #     from utils.PathManager import PathManager
+        #     import json, os
+        #     settings_path = PathManager.get_settings_path()
+        #     if os.path.exists(settings_path):
+        #         with open(settings_path, 'r', encoding='utf-8') as f:
+        #             settings_data = json.load(f)
+        #             active_strategies = settings_data.get("copilot", {}).get("active_strategies_tree", {}).get(tf_str, [])
+        #             target_assets = settings_data.get("copilot", {}).get("target_assets", [])
+        # except Exception as e:
+        #     self.service.log_update.emit(f"⚠️ Помилка завантаження налаштувань для сканування: {e}")
+        #
+        # if active_strategies:
+        #     self.service.log_update.emit(f"🔍 Запуск сканування стратегій для {tf_str}...")
+        #
+        #     from PyQt6.QtCore import QThread
+        #     from utils.notification_service import TelegramNotifier
+        #
+        #     class ScanWorker(QThread):
+        #         def __init__(self, copilot, strats, assets, tf):
+        #             super().__init__()
+        #             self.copilot = copilot
+        #             self.strats = strats
+        #             self.assets = assets
+        #             self.tf = tf
+        #             self.notifier = TelegramNotifier()
+        #         def run(self):
+        #             try:
+        #                 self.copilot.scan_markets_for_signals(
+        #                     self.strats,
+        #                     self.notifier,
+        #                     target_assets=self.assets,
+        #                     target_timeframes=[self.tf]
+        #                 )
+        #             except Exception as e:
+        #                 print(f"Signal scan error: {e}")
+        #
+        #     # Keep reference to avoid garbage collection
+        #     worker = ScanWorker(self.trading_copilot, active_strategies, target_assets, tf_str)
+        #     self._scan_workers[tf_str] = worker
+        #
+        #     def on_finished(t=tf_str):
+        #         self.service.log_update.emit(f"✅ Сканування {t} завершено.")
+        #         if t in self._scan_workers:
+        #             del self._scan_workers[t]
+        #
+        #     worker.finished.connect(on_finished)
+        #     worker.start()
 
     # ----------------------------------
     # analyze_database, запуск аналізу прогалин в БД

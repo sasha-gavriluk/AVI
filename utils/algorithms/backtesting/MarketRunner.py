@@ -1,3 +1,12 @@
+# ==================================================================
+# ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): робота з класичними стратегіями
+# тимчасово заморожена. Цей модуль на 100% залежить від rules_engine
+# (вже заморожений, utils/rules_engine/) — тому й сам ніде більше не
+# використовується. Весь код нижче загорнутий у рядковий літерал і не
+# виконується. Довідка: Code/COPILOT_ARCHITECTURE.md, Code/REFACTOR_LOG.md.
+# ==================================================================
+
+_DISABLED_MARKET_RUNNER_SOURCE = r'''
 import pandas as pd
 
 from utils.algorithms.backtesting.BaseSettings import BaseSettings
@@ -235,3 +244,4 @@ class MarketRunner(BaseSettings):
         final_df = deal_writer.finalize_trades()
         print("Бэктест завершено.")
         return final_df
+'''

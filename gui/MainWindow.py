@@ -3,7 +3,9 @@ import sys
 
 from PyQt6.QtWidgets import QMainWindow, QTabWidget, QMessageBox
 from PyQt6.QtCore import pyqtSlot
-import finplot as fplt
+# ВІДКЛЮЧЕНО: залишок старої finplot-реалізації вкладки "Графік" (тимчасово
+# знята з системи, підлягає рефакторингу).
+# import finplot as fplt
 
 from gui.visual.VisualRegistry import VisualRegistry
 from gui.logic.LogicRegistry import LogicRegistry
@@ -54,8 +56,11 @@ class MainAppWindow(QMainWindow):
         self.binder.attach_to_tabs(self.tabs)
         
         # Сигнали, які раніше були в MainWindow
-        self.visual_registry.explorer_tab.btn_open_chart.clicked.connect(self.on_open_chart_clicked)
-        self.visual_registry.backtest_tab.request_show_chart.connect(self.on_backtest_show_chart)
+        # ВІДКЛЮЧЕНО: вкладка "Графік" тимчасово знята з системи, підлягає
+        # рефакторингу й оновленню. Кнопки "Відкрити графік" з Провідника й
+        # Бектесту поки що нічого не роблять (методи-обробники нижче теж закоментовані).
+        # self.visual_registry.explorer_tab.btn_open_chart.clicked.connect(self.on_open_chart_clicked)
+        # self.visual_registry.backtest_tab.request_show_chart.connect(self.on_backtest_show_chart)
         
         # Автоматичне оновлення даних при переході на іншу вкладку
         self.tabs.currentChanged.connect(self.on_tab_changed)
@@ -82,82 +87,83 @@ class MainAppWindow(QMainWindow):
             from PyQt6.QtWidgets import QTreeWidgetItem
             self.visual_registry.explorer_tab.tree_view.addTopLevelItem(QTreeWidgetItem(["Завантаження..."]))
             self.logic_registry.explorer.request_databases_async(self.is_db_downloading)
-            
-        elif widget == self.visual_registry.chart_tab:
-            # Оновлюємо список доступних активів на графіку
-            if hasattr(self.visual_registry.chart_tab, 'refresh_menus'):
-                self.visual_registry.chart_tab.refresh_menus()
-                
-            # Оновлюємо випадаючий список бектестів
-            from PyQt6.QtGui import QAction
-            tables = self.logic_registry.chart.get_backtest_tables()
-            self.visual_registry.chart_tab.show_trades_menu.clear()
-            if not tables:
-                act = QAction(f"Немає бектестів", self.visual_registry.chart_tab)
-                act.setEnabled(False)
-                self.visual_registry.chart_tab.show_trades_menu.addAction(act)
-            else:
-                for tbl in tables:
-                    act = QAction(f"{tbl.replace('backtest_', '')}", self.visual_registry.chart_tab)
-                    act.triggered.connect(lambda checked, t=tbl: self._show_trades_from_action(t))
-                    self.visual_registry.chart_tab.show_trades_menu.addAction(act)
-                    
-        elif widget == self.visual_registry.backtest_tab:
-            # Оновлюємо списки активів у вкладці бектестів
-            if hasattr(self.visual_registry.backtest_tab, 'refresh_menus'):
-                self.visual_registry.backtest_tab.refresh_menus()
 
-    def _load_chart_from_action(self, db_path, table_name):
-        if self.visual_registry.chart_tab.ax is not None:
-            self.visual_registry.chart_tab.ax.clear()
-        self.logic_registry.chart.request_initial_data_async(db_path, table_name)
+        # ВІДКЛЮЧЕНО: вкладка "Графік" тимчасово знята з системи (немає
+        # self.visual_registry.chart_tab), підлягає рефакторингу й оновленню.
+        # elif widget == self.visual_registry.chart_tab:
+        #     # Оновлюємо список доступних активів на графіку
+        #     if hasattr(self.visual_registry.chart_tab, 'refresh_menus'):
+        #         self.visual_registry.chart_tab.refresh_menus()
+        #
+        #     # Оновлюємо випадаючий список бектестів
+        #     from PyQt6.QtGui import QAction
+        #     tables = self.logic_registry.chart.get_backtest_tables()
+        #     self.visual_registry.chart_tab.show_trades_menu.clear()
+        #     if not tables:
+        #         act = QAction(f"Немає бектестів", self.visual_registry.chart_tab)
+        #         act.setEnabled(False)
+        #         self.visual_registry.chart_tab.show_trades_menu.addAction(act)
+        #     else:
+        #         for tbl in tables:
+        #             act = QAction(f"{tbl.replace('backtest_', '')}", self.visual_registry.chart_tab)
+        #             act.triggered.connect(lambda checked, t=tbl: self._show_trades_from_action(t))
+        #             self.visual_registry.chart_tab.show_trades_menu.addAction(act)
 
-    def _show_trades_from_action(self, trades_table):
-        if not self.logic_registry.chart.load_trades(trades_table): return
-        import pandas as pd
-        entries = pd.Series(index=self.logic_registry.chart.df.index, dtype=float)
-        exits = pd.Series(index=self.logic_registry.chart.df.index, dtype=float)
-        for _, trade in self.logic_registry.chart.trades_df.iterrows():
-            try:
-                entry_time = pd.to_datetime(trade['EntryTimestamp'], unit='ms')
-                exit_time = pd.to_datetime(trade['ExitTimestamp'], unit='ms')
-                if entry_time in self.logic_registry.chart.df.index:
-                    high = self.logic_registry.chart.df.loc[entry_time, 'high']
-                    entries.loc[entry_time] = high + (high * 0.0005)
-                if exit_time in self.logic_registry.chart.df.index:
-                    low = self.logic_registry.chart.df.loc[exit_time, 'low']
-                    exits.loc[exit_time] = low - (low * 0.0005)
-            except Exception: pass
-        self.visual_registry.chart_tab.draw_trades(entries, exits)
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        # ВІДКЛЮЧЕНО (BACKTEST): вкладка "Тестер стратегій" тимчасово знята
+        # з системи (немає self.visual_registry.backtest_tab), підлягає
+        # рефакторингу й оновленню. Пов'язані блоки: gui/visual/VisualRegistry.py,
+        # gui/logic/LogicRegistry.py, gui/GuiBinder.py.
+        # elif widget == self.visual_registry.backtest_tab:
+        #     # Оновлюємо списки активів у вкладці бектестів
+        #     if hasattr(self.visual_registry.backtest_tab, 'refresh_menus'):
+        #         self.visual_registry.backtest_tab.refresh_menus()
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
 
-    # ----------------------------------
-    # on_open_chart_clicked, відкрити графік
-    # ----------------------------------
-    # Параметри: немає
-    @pyqtSlot()
-    def on_open_chart_clicked(self):
-        table_name = self.logic_registry.explorer.current_table_name
-        if not table_name:
-            return
-            
-        db_path = self.logic_registry.explorer.db_service.current_db_path
-        if db_path:
-            db_name = os.path.basename(db_path)
-            self._load_chart_from_action(db_name, table_name)
-            self.tabs.setCurrentWidget(self.visual_registry.chart_tab)
-            
-    # ----------------------------------
-    # on_backtest_show_chart, відкрити графік бектесту
-    # ----------------------------------
-    # Параметри: 
-    # db_name (str): назва бд
-    # backtest_table (str): назва таблиці бектесту
-    # asset_table (str): назва оригінальної таблиці активу
-    @pyqtSlot(str, str, str)
-    def on_backtest_show_chart(self, db_name: str, backtest_table: str, asset_table: str):
-        self._load_chart_from_action(db_name, asset_table)
-        self._show_trades_from_action(backtest_table)
-        self.tabs.setCurrentWidget(self.visual_registry.chart_tab)
+    # ВІДКЛЮЧЕНО: наступні методи обслуговують вкладку "Графік", яка тимчасово
+    # знята з системи (self.visual_registry.chart_tab більше не існує).
+    # Підлягають рефакторингу й оновленню разом із самою вкладкою.
+    #
+    # def _load_chart_from_action(self, db_path, table_name):
+    #     if self.visual_registry.chart_tab.ax is not None:
+    #         self.visual_registry.chart_tab.ax.clear()
+    #     self.logic_registry.chart.request_initial_data_async(db_path, table_name)
+    #
+    # def _show_trades_from_action(self, trades_table):
+    #     if not self.logic_registry.chart.load_trades(trades_table): return
+    #     import pandas as pd
+    #     entries = pd.Series(index=self.logic_registry.chart.df.index, dtype=float)
+    #     exits = pd.Series(index=self.logic_registry.chart.df.index, dtype=float)
+    #     for _, trade in self.logic_registry.chart.trades_df.iterrows():
+    #         try:
+    #             entry_time = pd.to_datetime(trade['EntryTimestamp'], unit='ms')
+    #             exit_time = pd.to_datetime(trade['ExitTimestamp'], unit='ms')
+    #             if entry_time in self.logic_registry.chart.df.index:
+    #                 high = self.logic_registry.chart.df.loc[entry_time, 'high']
+    #                 entries.loc[entry_time] = high + (high * 0.0005)
+    #             if exit_time in self.logic_registry.chart.df.index:
+    #                 low = self.logic_registry.chart.df.loc[exit_time, 'low']
+    #                 exits.loc[exit_time] = low - (low * 0.0005)
+    #         except Exception: pass
+    #     self.visual_registry.chart_tab.draw_trades(entries, exits)
+    #
+    # @pyqtSlot()
+    # def on_open_chart_clicked(self):
+    #     table_name = self.logic_registry.explorer.current_table_name
+    #     if not table_name:
+    #         return
+    #
+    #     db_path = self.logic_registry.explorer.db_service.current_db_path
+    #     if db_path:
+    #         db_name = os.path.basename(db_path)
+    #         self._load_chart_from_action(db_name, table_name)
+    #         self.tabs.setCurrentWidget(self.visual_registry.chart_tab)
+    #
+    # @pyqtSlot(str, str, str)
+    # def on_backtest_show_chart(self, db_name: str, backtest_table: str, asset_table: str):
+    #     self._load_chart_from_action(db_name, asset_table)
+    #     self._show_trades_from_action(backtest_table)
+    #     self.tabs.setCurrentWidget(self.visual_registry.chart_tab)
 
     # ----------------------------------
     # is_db_downloading, чи завантажується БД

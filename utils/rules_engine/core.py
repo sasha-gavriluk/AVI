@@ -1,3 +1,12 @@
+# ==================================================================
+# ВІДКЛЮЧЕНО (RULES_ENGINE): робота з класичними стратегіями (rules_engine)
+# тимчасово заморожена — рушій НІДЕ більше не використовується (заморожені
+# також StrategyGenerator.py, MarketRunner.py, і виклики в TradingCopilot.py/
+# copilot_service.py/CopilotLogic.py). Весь код нижче загорнутий у рядковий
+# літерал і не виконується. Довідка: Code/COPILOT_ARCHITECTURE.md, Code/REFACTOR_LOG.md.
+# ==================================================================
+
+_DISABLED_RULES_ENGINE_CORE_SOURCE = r'''
 import pandas as pd
 import operator
 
@@ -321,3 +330,5 @@ class BinaryOperation(Expression):
 
     def __repr__(self):
         return f"({self.left} {self.op_symbol} {self.right})"
+
+'''

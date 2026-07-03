@@ -318,14 +318,24 @@ class TabSettingsVisual(QWidget):
             lbl.setStyleSheet("font-size: 16px; font-weight: bold; color: #89B4FA; margin-top: 25px; margin-bottom: 5px; border: none;")
             layout.addWidget(lbl)
 
-        add_section("Критерії Відбору в Топ та Пам'ять")
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): усі 3 секції нижче
+        # (Критерії Відбору, Обмеження Авто Навчання, Фільтри Активності)
+        # налаштовують ЛИШЕ генерацію/тестування класичних rules_engine-
+        # стратегій (run_random_training/AutoLearnWorker) — обидва шляхи
+        # заморожені. Віджети лишаються видимими (для довідки/відновлення),
+        # але заблоковані нижче через setEnabled(False). Секція "Параметри
+        # Сканування" (target_assets/target_timeframes) НЕ заморожена —
+        # вона спільна з режимом "Нейромережі". Довідка: Code/COPILOT_ARCHITECTURE.md.
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        add_section("Критерії Відбору в Топ та Пам'ять (ЗАМОРОЖЕНО)")
         layout.addWidget(self._create_setting_row("Кількість Топ стратегій", "Скільки найкращих алгоритмів Копілот зберігає в 'Топ'. Зменшення змусить швидше відкидати слабші варіанти.", self.top_strategies_count_input))
         layout.addWidget(self._create_setting_row("Мін. Profit Factor для Топ", "Головний критерій якості. Стратегія не потрапить в Топ, якщо її прибутковість нижча за цей показник.", self.min_pf_input))
         layout.addWidget(self._create_setting_row("Мін. Score для успіху", "Комплексний бал (0-1), що поєднує Win Rate, прибуток та кількість угод. Якщо стратегія слабка і не набирає цей бал, вона ігнорується.", self.min_score_input))
         layout.addWidget(self._create_setting_row("Період напіврозпаду пам'яті", "Час у днях, за який Копілот 'забуває' старі алгоритми. Зменшіть, якщо він зациклюється на одних індикаторах.", self.half_life_input))
         layout.addWidget(self._create_setting_row("Мін. вага для оновлення", "Скільки успішних тестів потрібно зібрати, щоб Копілот був впевнений і автоматично оновив глобальні правила (rules.json).", self.update_threshold_input))
-        
-        add_section("Обмеження даних для Авто Навчання")
+
+        add_section("Обмеження даних для Авто Навчання (ЗАМОРОЖЕНО)")
         self.auto_learn_limits_layout = QGridLayout()
         
         headers = ["Таймфрейм", "Кількість свічок", "Орієнтовний час", "Всі дані"]
@@ -405,8 +415,8 @@ class TabSettingsVisual(QWidget):
                      "💡 Щоб змінити кількість, перемкніть кнопку з 'ВКЛ' на 'ВИКЛ'.\n"
                      "Редагувати можна лише стовпчик зі свічками (час розраховується автоматично).")
         layout.addWidget(self._create_setting_row("Дані для навчання", desc_text, limits_widget))
-        
-        add_section("Фільтри Активності")
+
+        add_section("Фільтри Активності (ЗАМОРОЖЕНО)")
         layout.addWidget(self._create_setting_row("Підхід до оцінки активності", "Глобальний: рахує всі угоди. Віконний: перевіряє, чи торгує стратегія стабільно в кожному проміжку часу.", self.min_trades_mode))
         layout.addWidget(self._create_setting_row("Базовий період", "Розмір вікна (або масштаб) у свічках для перевірки активності.", self.min_trades_base_candles))
         layout.addWidget(self._create_setting_row("Мінімум угод", "Відсіює стратегії, які роблять занадто мало входів і можуть бути випадковістю.", self.min_trades_input))
@@ -438,7 +448,7 @@ class TabSettingsVisual(QWidget):
         tf_presets_widget.setLayout(tf_presets)
         layout.addWidget(self._create_setting_row("Прісети таймфреймів", "Швидке додавання робочих інтервалів.", tf_presets_widget))
 
-        add_section("Активні Стратегії (Сигнали та Мутація)")
+        add_section("Активні Стратегії (Сигнали та Мутація) (ЗАМОРОЖЕНО)")
         
         strat_container = QFrame()
         strat_container.setStyleSheet("""
@@ -486,6 +496,27 @@ class TabSettingsVisual(QWidget):
         strat_layout.addLayout(btn_layout)
         
         layout.addWidget(strat_container)
+
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): блокуємо всі віджети, що
+        # стосуються ЛИШЕ класичних rules_engine-стратегій. Значення й
+        # save/load у GuiBinder._bind_settings НЕ чіпались навмисно (щоб не
+        # ризикувати рештою сторінки Налаштувань) — settings.json так само
+        # читається/пишеться, просто керувати цими полями з UI не можна,
+        # поки rules_engine заморожений. Довідка: Code/COPILOT_ARCHITECTURE.md,
+        # Code/REFACTOR_LOG.md.
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        for w in [
+            self.top_strategies_count_input, self.min_pf_input, self.min_score_input,
+            self.half_life_input, self.update_threshold_input,
+            self.min_trades_mode, self.min_trades_base_candles,
+            self.min_trades_input, self.min_trades_tolerance,
+            self.active_strategies_tree, self.btn_add_strategy, self.btn_remove_strategy,
+        ]:
+            w.setEnabled(False)
+        for widgets in self.auto_learn_limit_widgets.values():
+            widgets["candles"].setEnabled(False)
+            widgets["all_data"].setEnabled(False)
 
         layout.addStretch()
 

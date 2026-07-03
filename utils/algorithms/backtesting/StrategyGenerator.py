@@ -1,3 +1,12 @@
+# ==================================================================
+# ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): робота з класичними стратегіями
+# тимчасово заморожена. Цей модуль на 100% залежить від rules_engine
+# (вже заморожений, utils/rules_engine/) — тому й сам ніде більше не
+# використовується. Весь код нижче загорнутий у рядковий літерал і не
+# виконується. Довідка: Code/COPILOT_ARCHITECTURE.md, Code/REFACTOR_LOG.md.
+# ==================================================================
+
+_DISABLED_STRATEGY_GENERATOR_SOURCE = r'''
 import json
 import os
 import random
@@ -276,3 +285,5 @@ class StrategyGenerator:
         lines.append(f"strategy = Strategy(entry_rule=entry, exit_rule=exit)")
         
         return "\n".join(lines)
+
+'''

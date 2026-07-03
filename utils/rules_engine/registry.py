@@ -1,6 +1,15 @@
+# ==================================================================
+# ВІДКЛЮЧЕНО (RULES_ENGINE): робота з класичними стратегіями (rules_engine)
+# тимчасово заморожена — рушій НІДЕ більше не використовується (заморожені
+# також StrategyGenerator.py, MarketRunner.py, і виклики в TradingCopilot.py/
+# copilot_service.py/CopilotLogic.py). Весь код нижче загорнутий у рядковий
+# літерал і не виконується. Довідка: Code/COPILOT_ARCHITECTURE.md, Code/REFACTOR_LOG.md.
+# ==================================================================
+
+_DISABLED_RULES_ENGINE_REGISTRY_SOURCE = r'''
 import pandas as pd
 import re
-from utils.algorithms.DataProcessing import IndicatorProcessor, PatternDetector, AlgorithmProcessor
+from utils.algorithms.indicators.DataProcessingManager import IndicatorProcessor, PatternDetector, AlgorithmProcessor
 
 class IndicatorRegistry:
     """
@@ -231,3 +240,5 @@ class IndicatorRegistry:
         Виконує правило і повертає булеву маску (Pandas Series з True/False).
         """
         return rule_expression.evaluate(self)
+
+'''

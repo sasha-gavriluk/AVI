@@ -253,11 +253,18 @@ class CopilotSchedulerThread(QThread):
 
     def run(self):
         from utils.algorithms.backtesting.TradingCopilot import TradingCopilot
-        from utils.algorithms.backtesting.StrategyGenerator import StrategyGenerator
-        
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): StrategyGenerator.py
+        # заморожений (весь код обгорнутий у рядковий літерал), клас
+        # більше не існує — імпорт і створення екземпляра прибрано, інакше
+        # рутина впаде з AttributeError одразу при старті потоку (навіть
+        # у режимі "Нейромережі"). Довідка: Code/COPILOT_ARCHITECTURE.md.
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        # from utils.algorithms.backtesting.StrategyGenerator import StrategyGenerator
+
         copilot = TradingCopilot(db_path=self.db_path)
-        generator = StrategyGenerator(copilot=copilot)
-        
+        # generator = StrategyGenerator(copilot=copilot)
+
         while self.is_running:
             import json, os
             try:
@@ -352,24 +359,16 @@ class CopilotSchedulerThread(QThread):
                 target_assets = settings_data.get("copilot", {}).get("target_assets", [])
 
                 if signal_mode == "Класичні Стратегії":
-                    has_any_strategies = any(len(strats) > 0 for strats in active_strategies_tree.values())
-                    if has_any_strategies:
-                        try:
-                            # Запускаємо сканування для кожного таймфрейму, де є стратегії
-                            for tf, strats in active_strategies_tree.items():
-                                if strats:
-                                    self.log_signal.emit(f"🔍 [Рутина] Сканування для таймфрейму {tf}...")
-                                    copilot.scan_markets_for_signals(
-                                        strats, 
-                                        notifier,
-                                        target_assets=target_assets,
-                                        target_timeframes=[tf]
-                                    )
-                            self.log_signal.emit("✅ [Рутина] Сканування завершено, звіти відправлено.")
-                        except Exception as e:
-                            self.log_signal.emit(f"❌ [Рутина] Помилка сканування: {e}")
-                    else:
-                        self.log_signal.emit("⚠️ [Рутина] Немає активних стратегій для сканування.")
+                    # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+                    # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): режим "Класичні
+                    # Стратегії" тимчасово заморожений — TradingCopilot.
+                    # scan_markets_for_signals() недосяжний (rules_engine
+                    # заморожений). Якщо в settings.json лишився старий
+                    # signal_mode, рутина просто пропускає крок замість
+                    # падіння. Перемкни на "Нейромережі (Golden Trio)" у
+                    # вкладці Копілота. Довідка: Code/COPILOT_ARCHITECTURE.md.
+                    # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+                    self.log_signal.emit("⏸️ [Рутина] Режим 'Класичні Стратегії' тимчасово заморожений. Перемкни на 'Нейромережі (Golden Trio)'.")
                 else:
                     # Режим Нейромереж
                     self.log_signal.emit("🧠 [Рутина] Аналіз ринків через Нейромережі (Golden Trio)...")
@@ -413,12 +412,18 @@ class CopilotSchedulerThread(QThread):
             if not self.is_running: break
 
             if auto_gen:
-                self.log_signal.emit("🧠 [Рутина] Крок 5: Авто-генерація та тестування 100 стратегій...")
-                try:
-                    copilot.run_random_training(generator, n_strategies=100)
-                    self.log_signal.emit("✅ [Рутина] Тренування завершено. Найкращі стратегії збережено в папці 'Copilot'.")
-                except Exception as e:
-                    self.log_signal.emit(f"❌ [Рутина] Помилка генерації: {e}")
+                # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+                # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): авто-генерація
+                # випадкових стратегій. run_random_training()/StrategyGenerator
+                # заморожені (rules_engine заморожений) — крок пропускається.
+                # Довідка: Code/COPILOT_ARCHITECTURE.md.
+                # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+                self.log_signal.emit("⏸️ [Рутина] Крок 5 (Авто-генерація стратегій) тимчасово заморожений.")
+                # try:
+                #     copilot.run_random_training(generator, n_strategies=100)
+                #     self.log_signal.emit("✅ [Рутина] Тренування завершено. Найкращі стратегії збережено в папці 'Copilot'.")
+                # except Exception as e:
+                #     self.log_signal.emit(f"❌ [Рутина] Помилка генерації: {e}")
             
             # Розумне очікування нової свічки
             import time

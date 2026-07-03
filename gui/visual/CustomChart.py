@@ -1,3 +1,12 @@
+# ==================================================================
+# ВІДКЛЮЧЕНО: віджет графіка (використовувався лише вкладкою "Графік",
+# яка тимчасово знята з системи — див. gui/visual/TabChartVisual.py).
+# Підлягає повному рефакторингу й оновленню. Ніде не імпортується —
+# весь код нижче загорнутий у рядковий літерал і не виконується, лишений
+# як довідка для майбутнього переписування.
+# ==================================================================
+
+_DISABLED_CUSTOM_CHART_SOURCE = r"""
 import pandas as pd
 import pyqtgraph as pg
 from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal
@@ -33,10 +42,10 @@ class CustomViewBox(pg.ViewBox):
             # If user drags on Y axis, disable auto-scale
             pass # Standard behavior
         elif ev.button() == Qt.MouseButton.RightButton:
-            # User uses right button to drag Y or X, but standard pyqtgraph scales. 
+            # User uses right button to drag Y or X, but standard pyqtgraph scales.
             self.y_auto_scale = False
         super().mouseDragEvent(ev, axis)
-        
+
     def wheelEvent(self, ev, axis=None):
         # Force the scroll wheel to only zoom the X-axis (axis=0)
         # This prevents the Y-axis from manually squashing, allowing auto-scale to handle it.
@@ -68,20 +77,20 @@ class CandlestickItem(pg.GraphicsObject):
     def generate_picture(self):
         self.picture = QPicture()
         p = QPainter(self.picture)
-        
+
         w = (self.data[1][0] - self.data[0][0]) / 3.0 if len(self.data) > 1 else 0.3
-        
+
         for (x, open_val, close_val, min_val, max_val) in self.data:
             p.setPen(pg.mkPen(self.up_color if close_val > open_val else self.down_color))
             p.drawLine(QPointF(x, min_val), QPointF(x, max_val))
-            
+
             if close_val > open_val:
                 p.setBrush(QBrush(self.up_color))
                 p.drawRect(QRectF(x - w, open_val, w * 2, close_val - open_val))
             else:
                 p.setBrush(QBrush(self.down_color))
                 p.drawRect(QRectF(x - w, close_val, w * 2, open_val - close_val))
-                
+
         p.end()
 
     def paint(self, p, *args):
@@ -93,49 +102,49 @@ class CandlestickItem(pg.GraphicsObject):
 class NativeChartWidget(QWidget):
     chart_clicked = pyqtSignal(object)
     request_more_data = pyqtSignal()
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
-        
+
         self.up_color = '#26a69a'
         self.down_color = '#ef5350'
         self.bg_color = '#1e1f22'
         self.grid_color = '#404040'
         self.text_color = '#eef'
-        
+
         pg.setConfigOptions(antialias=True)
         pg.setConfigOption('background', self.bg_color)
         pg.setConfigOption('foreground', self.text_color)
-        
+
         self.time_axis = TimeAxisItem(orientation='bottom')
         self.view_box = CustomViewBox()
         self.plot_widget = pg.PlotWidget(viewBox=self.view_box, axisItems={'bottom': self.time_axis})
         self.layout.addWidget(self.plot_widget)
-        
+
         self.plot_item = self.plot_widget.getPlotItem()
         self.plot_item.hideButtons()
         self.plot_item.showGrid(x=True, y=True, alpha=0.5)
         self.plot_item.getAxis('left').setPen(self.grid_color)
         self.plot_item.getAxis('bottom').setPen(self.grid_color)
-        
+
         self.candlestick = CandlestickItem([], self.up_color, self.down_color)
         self.plot_item.addItem(self.candlestick)
-        
+
         self.markers = []
         self.df = None
         self.loading_more = False
-        
+
         self.v_line = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen('#a9a9a9', style=Qt.PenStyle.DashLine))
         self.h_line = pg.InfiniteLine(angle=0, movable=False, pen=pg.mkPen('#a9a9a9', style=Qt.PenStyle.DashLine))
         self.plot_item.addItem(self.v_line, ignoreBounds=True)
         self.plot_item.addItem(self.h_line, ignoreBounds=True)
-        
+
         self.label = pg.TextItem(anchor=(0, 1), color=self.text_color, fill=self.bg_color)
         self.plot_item.addItem(self.label)
         self.label.setZValue(10)
-        
+
         self.proxy = pg.SignalProxy(self.plot_widget.scene().sigMouseMoved, rateLimit=60, slot=self.mouse_moved)
         self.plot_widget.scene().sigMouseClicked.connect(self.mouse_clicked)
         self.view_box.sigXRangeChanged.connect(self.on_x_range_changed)
@@ -146,7 +155,7 @@ class NativeChartWidget(QWidget):
         if 'down_color' in config: self.down_color = config['down_color']
         if 'bg_color' in config: self.bg_color = config['bg_color']
         if 'grid_color' in config: self.grid_color = config['grid_color']
-        
+
         self.plot_widget.setBackground(self.bg_color)
         self.label.fill = pg.mkBrush(self.bg_color)
         self.candlestick.set_colors(self.up_color, self.down_color)
@@ -159,9 +168,9 @@ class NativeChartWidget(QWidget):
 
     def on_x_range_changed(self, vb, xrange):
         if self.df is None or self.df.empty: return
-        
+
         min_x, max_x = xrange
-        
+
         # 1. Y-Axis Auto-scaling (TradingView style)
         if vb.y_auto_scale:
             idx_start = max(0, int(min_x))
@@ -201,11 +210,11 @@ class NativeChartWidget(QWidget):
                 price = mouse_point.y()
                 self.v_line.setPos(mouse_point.x())
                 self.h_line.setPos(price)
-                
+
                 view_rect = self.plot_item.viewRect()
                 label_x = mouse_point.x() + (view_rect.width() * 0.02)
                 label_y = price + (view_rect.height() * 0.05)
-                
+
                 # Check bounds so label doesn't go off screen
                 if label_y > view_rect.bottom() - (view_rect.height() * 0.2):
                     label_y = price - (view_rect.height() * 0.05)
@@ -214,7 +223,7 @@ class NativeChartWidget(QWidget):
                     self.label.setAnchor((1, 0))
                 else:
                     self.label.setAnchor((0, 1))
-                
+
                 self.label.setPos(label_x, label_y)
                 self.label.setText(f"Time: {ts}\nPrice: {price:.5f}\nO:{row['open']} H:{row['high']} L:{row['low']} C:{row['close']}")
 
@@ -242,19 +251,19 @@ class NativeChartWidget(QWidget):
         if self.df.empty:
             self.candlestick.set_data([])
             return
-            
+
         if 'time' not in self.df.columns and self.df.index.name == 'time':
             self.df.reset_index(inplace=True)
         elif 'timestamp' in self.df.columns and 'time' not in self.df.columns:
             self.df['time'] = self.df['timestamp']
-            
+
         data = self._prepare_data(self.df)
         self.time_axis.update_mapping(self.df['time'].values)
         self.candlestick.set_data(data)
-        
+
         # Zoom Limits
         self.view_box.setLimits(xMin=-50, xMax=len(self.df)+50, minXRange=15, maxXRange=10000)
-        
+
         if maintain_view_for_added > 0:
             old_view = self.view_box.viewRange()[0]
             self.view_box.setXRange(old_view[0] + maintain_view_for_added, old_view[1] + maintain_view_for_added, padding=0)
@@ -267,15 +276,15 @@ class NativeChartWidget(QWidget):
             df = pd.DataFrame([row_dict])
             self.set_data(df)
             return
-            
+
         # Check if user's view is at the very right edge (live edge)
         current_x_range = self.view_box.viewRange()[0]
         at_live_edge = current_x_range[1] >= len(self.df) - 2
         len_before = len(self.df)
-            
+
         last_idx = len(self.df) - 1
         last_time = self.df.iloc[last_idx]['time']
-        
+
         if row_dict.get('time') == last_time:
             for col in ['open', 'high', 'low', 'close']:
                 if col in row_dict:
@@ -284,15 +293,15 @@ class NativeChartWidget(QWidget):
             new_row = pd.DataFrame([row_dict])
             self.df = pd.concat([self.df, new_row], ignore_index=True)
             self.view_box.setLimits(xMin=-50, xMax=len(self.df)+50)
-            
+
         data = self._prepare_data(self.df)
         self.time_axis.update_mapping(self.df['time'].values)
         self.candlestick.set_data(data)
-        
+
         if at_live_edge and len(self.df) > len_before:
             # Shift the view to follow the new candle
             self.view_box.setXRange(current_x_range[0] + 1, current_x_range[1] + 1, padding=0)
-            
+
         # Trigger y-axis auto-scale if enabled, to adjust for the new live candle
         if self.view_box.y_auto_scale:
             self.on_x_range_changed(self.view_box, self.view_box.viewRange()[0])
@@ -307,19 +316,19 @@ class NativeChartWidget(QWidget):
                 time_matches = self.df[self.df['temp_time'] == ts]
             except Exception:
                 pass
-                
+
         if time_matches.empty: return
         idx = time_matches.index[0]
         row = self.df.iloc[idx]
-        
+
         y_pos = row['low'] if position == 'belowBar' else row['high']
         anchor = (0.5, 0) if position == 'belowBar' else (0.5, 1)
-        
-        arrow = pg.ArrowItem(pos=(idx, y_pos), angle=90 if position == 'belowBar' else -90, 
+
+        arrow = pg.ArrowItem(pos=(idx, y_pos), angle=90 if position == 'belowBar' else -90,
                              brush=color, pen=color, headLen=15)
         text_item = pg.TextItem(text, color=color, anchor=anchor)
         text_item.setPos(idx, y_pos + (row['high'] - row['low']) * 0.1 * (1 if position == 'aboveBar' else -1))
-        
+
         self.plot_item.addItem(arrow)
         self.plot_item.addItem(text_item)
         self.markers.extend([arrow, text_item])
@@ -345,3 +354,4 @@ class NativeChartWidget(QWidget):
         for marker in self.markers:
             self.plot_item.removeItem(marker)
         self.markers.clear()
+"""
