@@ -27,8 +27,18 @@ class GuiBinder:
         self._bind_settings()
         self._bind_explorer()
         self._bind_downloader()
-        self._bind_chart()
-        self._bind_backtest()
+        # ВІДКЛЮЧЕНО: вкладка "Графік" тимчасово знята з системи, підлягає
+        # рефакторингу й оновленню. Метод _bind_chart() лишається нижче
+        # незмінним (код збережено), але більше не викликається.
+        # self._bind_chart()
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        # ВІДКЛЮЧЕНО (BACKTEST): вкладка "Тестер стратегій" тимчасово знята
+        # з системи, підлягає рефакторингу й оновленню. Метод _bind_backtest()
+        # лишається нижче незмінним (код збережено), але більше не
+        # викликається. Пов'язані блоки: gui/visual/VisualRegistry.py,
+        # gui/logic/LogicRegistry.py, gui/MainWindow.py.
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        # self._bind_backtest()
         self._bind_copilot()
         self._bind_live_algo()
         
@@ -592,8 +602,9 @@ class GuiBinder:
             
             if hasattr(self.v.settings_tab, 'refresh_settings_assets'):
                 self.v.settings_tab.refresh_settings_assets()
-            if hasattr(self.v.chart_tab, 'refresh_menus'):
-                self.v.chart_tab.refresh_menus()
+            # ВІДКЛЮЧЕНО: chart_tab тимчасово знятий з системи (див. VisualRegistry.py)
+            # if hasattr(self.v.chart_tab, 'refresh_menus'):
+            #     self.v.chart_tab.refresh_menus()
 
         def on_error(err):
             tab.card_status.value_label.setText("ERROR (Помилка)")
@@ -660,6 +671,9 @@ class GuiBinder:
     # ----------------------------------
     # _bind_chart, зв'язування графіка
     # ----------------------------------
+    # ВІДКЛЮЧЕНО: вкладка "Графік" тимчасово знята з системи (не викликається
+    # з bind_all(), self.v.chart_tab більше не існує). Код нижче лишається
+    # незмінним як довідка для майбутнього рефакторингу/оновлення вкладки.
     # Параметри: немає
     def _bind_chart(self):
         tab = self.v.chart_tab
@@ -1028,6 +1042,13 @@ class GuiBinder:
     # ----------------------------------
     # _bind_backtest, зв'язування бектесту
     # ----------------------------------
+    # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+    # ВІДКЛЮЧЕНО (BACKTEST): вкладка "Тестер стратегій" тимчасово знята з
+    # системи, підлягає рефакторингу й оновленню. Цей метод більше НЕ
+    # викликається з bind_all() (виклик закоментовано вище) — код тіла
+    # лишається незмінним нижче як довідка на майбутнє. Пов'язані блоки:
+    # gui/visual/VisualRegistry.py, gui/logic/LogicRegistry.py, gui/MainWindow.py.
+    # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
     def _bind_backtest(self):
         tab = self.v.backtest_tab
         logic = self.l.backtest
@@ -1472,8 +1493,14 @@ class GuiBinder:
     def attach_to_tabs(self, tabs_widget: QTabWidget):
         tabs_widget.addTab(self.v.explorer_tab, "Провідник БД")
         tabs_widget.addTab(self.v.downloader_tab, "Завантаження даних")
-        tabs_widget.addTab(self.v.chart_tab, "Графік (finplot)")
-        tabs_widget.addTab(self.v.backtest_tab, "Тестер стратегій")
+        # ВІДКЛЮЧЕНО: вкладка "Графік" тимчасово знята з системи, підлягає
+        # рефакторингу й оновленню.
+        # tabs_widget.addTab(self.v.chart_tab, "Графік (finplot)")
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        # ВІДКЛЮЧЕНО (BACKTEST): вкладка "Тестер стратегій" тимчасово знята
+        # з системи, підлягає рефакторингу й оновленню.
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        # tabs_widget.addTab(self.v.backtest_tab, "Тестер стратегій")
         tabs_widget.addTab(self.v.copilot_tab, "Автономний Копілот")
         tabs_widget.addTab(self.v.live_algo_tab, "Авто-Трейдінг (NN)")
         tabs_widget.addTab(self.v.settings_tab, "Налаштування")

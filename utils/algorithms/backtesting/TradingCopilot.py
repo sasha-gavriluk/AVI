@@ -7,6 +7,14 @@ import random
 from multiprocessing import Pool
 import os
 
+# ==================================================================
+# ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): модульні функції для
+# multiprocessing-виконання коду класичних стратегій (через rules_engine,
+# вже заморожений) та їх сканування на ринках. Ніде не викликаються.
+# Довідка: Code/COPILOT_ARCHITECTURE.md, Code/REFACTOR_LOG.md.
+# ==================================================================
+
+_DISABLED_TRADING_COPILOT_WORKER_FUNCTIONS_SOURCE = r'''
 _GLOBAL_DF_FOR_WORKERS = None
 _GLOBAL_TABLE_NAME_FOR_WORKERS = None
 
@@ -218,6 +226,9 @@ def _run_single_strategy(strategy_code: str) -> dict:
     except Exception as e:
         return {"success": False, "error": str(e), "code": strategy_code}
 
+'''
+
+
 class TradingCopilot:
     """
     Єдина система (Copilot + StrategyAnalyzer + ExperienceAnalyzer),
@@ -297,6 +308,13 @@ class TradingCopilot:
         except Exception as e:
             print(f"Помилка при збереженні результатів: {e}")
 
+    # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+    # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): генерація й тест випадкових
+    # стратегій. Викликає StrategyGenerator.generate() (заморожений) і
+    # _run_single_strategy (заморожений вище) — сама лишається недосяжною,
+    # бо всі виклики цього методу закоментовано в copilot_service.py.
+    # Довідка: Code/COPILOT_ARCHITECTURE.md, Code/REFACTOR_LOG.md.
+    # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
     def run_random_training(self, generator, n_strategies: int = 1000, direction: str = "BUY", n_workers: int = None, table_name: str = None):
         """Паралельний запуск N рандомних стратегій."""
         if n_workers is None:
@@ -656,6 +674,12 @@ class TradingCopilot:
 
         return "\n".join(summary_lines)
 
+    # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+    # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): самонавчальне редагування
+    # rules.json (правил двигуна) на основі успішних бектестів. Раніше
+    # викликався лише зі StrategyGenerator.generate() (заморожений) —
+    # тепер недосяжний. Довідка: Code/COPILOT_ARCHITECTURE.md, Code/REFACTOR_LOG.md.
+    # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
     def update_rules_from_experience(self, rules_path: str):
         """
         Аналізує успішні бектести з copilot_memory та оновлює data/config/rules.json.
@@ -786,6 +810,14 @@ class TradingCopilot:
     # =========================================================================
     # СТАТИЧНИЙ АНАЛІЗАТОР СТРАТЕГІЙ (Колишній StrategyAnalyzer)
     # =========================================================================
+    # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+    # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): статичний аналіз коду
+    # rules_engine-стратегій (analyze() + всі приватні _check_*/_parse_*
+    # helper-методи нижче до кінця секції). Єдиний викликач був
+    # gui/logic/BacktestLogic.py — вкладка "Тестер стратегій" вже
+    # відключена (REFACTOR_LOG.md, Кластер 2), тож секція недосяжна.
+    # Довідка: Code/COPILOT_ARCHITECTURE.md, Code/REFACTOR_LOG.md.
+    # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
 
     def analyze(self, code_text: str) -> dict:
         """
@@ -1131,7 +1163,15 @@ class TradingCopilot:
     # =========================================================================
     # СИГНАЛЬНИЙ СКАНЕР (АВТОМАТИЗАЦІЯ)
     # =========================================================================
-    
+    # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+    # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): сканування ринків збереженими
+    # .py-стратегіями (через _scan_single_market, заморожений вище). Всі
+    # виклики цього методу закоментовано в gui/logic/copilot_service.py
+    # (CopilotSchedulerThread) і gui/logic/CopilotLogic.py
+    # (_on_trigger_signal_scan) — метод недосяжний.
+    # Довідка: Code/COPILOT_ARCHITECTURE.md, Code/REFACTOR_LOG.md.
+    # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+
     def scan_markets_for_signals(self, active_strategies_paths: list, notifier=None, target_assets=None, target_timeframes=None):
         import os
         from utils.DataBaseManager import DataBaseManager

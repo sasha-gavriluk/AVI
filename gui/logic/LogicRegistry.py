@@ -20,6 +20,20 @@ class LogicRegistry:
         self.settings = SettingsLogic()
         self.explorer = ExplorerLogic()
         self.downloader = DownloaderLogic()
+        # ЧАСТКОВО ВІДКЛЮЧЕНО: вкладка "Графік" (TabChartVisual) знята з
+        # системи й підлягає рефакторингу, але self.chart лишається живим —
+        # get_available_assets()/get_backtest_tables() використовуються
+        # вкладками Налаштування й Бектест, не тільки самим графіком.
         self.chart = ChartLogic()
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        # ЧАСТКОВО ВІДКЛЮЧЕНО (BACKTEST): вкладка "Тестер стратегій"
+        # (TabBacktestVisual) знята з системи й підлягає рефакторингу, але
+        # self.backtest навмисно ЛИШАЄТЬСЯ живим — BacktestLogic.__init__
+        # безпечний (лише читає strategy_meta.json, жодних потоків/таймерів),
+        # а self.copilot тут — це та сама TradingCopilot-логіка, якою
+        # користується "Автономний Копілот" (CopilotLogic), тож видаляти
+        # інстанціювання не можна. Пов'язані блоки: gui/visual/VisualRegistry.py,
+        # gui/GuiBinder.py, gui/MainWindow.py.
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
         self.backtest = BacktestLogic(self.copilot)
         self.live_algo = LiveAlgorithmicLogic()

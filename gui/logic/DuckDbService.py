@@ -57,9 +57,10 @@ class DuckDbService:
     def get_table_data(self, table_name: str, limit: int = 1000, offset: int = 0) -> pd.DataFrame:
         if not self.db_manager:
             return pd.DataFrame()
-            
-        query = f'SELECT * FROM "{table_name}" LIMIT {limit} OFFSET {offset}'
+
         try:
+            self.db_manager._validate_table_name(table_name)
+            query = f'SELECT * FROM "{table_name}" LIMIT {limit} OFFSET {offset}'
             return self.db_manager.conn.execute(query).fetchdf()
         except Exception as e:
             print(f"Помилка виконання запиту для таблиці {table_name}: {e}")
@@ -83,9 +84,10 @@ class DuckDbService:
     def get_table_count(self, table_name: str) -> int:
         if not self.db_manager:
             return 0
-            
-        query = f'SELECT COUNT(*) FROM "{table_name}"'
+
         try:
+            self.db_manager._validate_table_name(table_name)
+            query = f'SELECT COUNT(*) FROM "{table_name}"'
             df = self.db_manager.conn.execute(query).fetchdf()
             if df is None or df.empty:
                 return 0

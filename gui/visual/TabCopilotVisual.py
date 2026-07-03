@@ -144,25 +144,39 @@ class TabCopilotVisual(QWidget):
         
         self.cb_auto_mode = QCheckBox("Авто-режим")
         self.cb_auto_mode.setChecked(self.cb_states.get("cb_auto_mode", True))
-        self.cb_auto_gen = QCheckBox("Авто-генерація стратегій")
-        self.cb_auto_gen.setChecked(self.cb_states.get("cb_auto_gen", True))
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): "Авто-генерація стратегій"
+        # (крок 5 рутини, run_random_training) заморожена — прибрано з
+        # обробки, чекбокс лишається видимим, але примусово вимкнений і
+        # заблокований, щоб не вводити в оману. Довідка: Code/COPILOT_ARCHITECTURE.md.
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        self.cb_auto_gen = QCheckBox("Авто-генерація стратегій (заморожено)")
+        self.cb_auto_gen.setChecked(False)
+        self.cb_auto_gen.setEnabled(False)
         self.cb_download_ccxt = QCheckBox("Авто-завантаження від CCXT")
         self.cb_download_ccxt.setChecked(self.cb_states.get("cb_download_ccxt", False))
         self.cb_download_massive = QCheckBox("Авто-завантаження від Massive")
         self.cb_download_massive.setChecked(self.cb_states.get("cb_download_massive", True))
         self.cb_gen_signals = QCheckBox("Генерація сигналів")
         self.cb_gen_signals.setChecked(self.cb_states.get("cb_gen_signals", False))
-        
+
         # New Combo for Signal Source
         signal_source_layout = QHBoxLayout()
         lbl_source = QLabel("Джерело сигналів:")
         lbl_source.setStyleSheet("color: #CDD6F4;")
         from PyQt6.QtWidgets import QComboBox
         self.combo_signal_source = QComboBox()
-        self.combo_signal_source.addItems(["Класичні Стратегії", "Нейромережі (Golden Trio)"])
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): пункт "Класичні Стратегії"
+        # прибрано зі списку — весь rules_engine-конвеєр заморожений
+        # (TradingCopilot.scan_markets_for_signals/run_random_training
+        # недосяжні). Лишається єдиний робочий режим — Нейромережі.
+        # Довідка: Code/COPILOT_ARCHITECTURE.md, Code/REFACTOR_LOG.md.
+        # !_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!_!
+        self.combo_signal_source.addItems(["Нейромережі (Golden Trio)"])
         self.combo_signal_source.setStyleSheet("background-color: #181825; color: #CDD6F4; padding: 3px; border-radius: 3px;")
-        
-        saved_mode = self.cb_states.get("signal_mode", "Класичні Стратегії")
+
+        saved_mode = self.cb_states.get("signal_mode", "Нейромережі (Golden Trio)")
         self.combo_signal_source.setCurrentText(saved_mode)
         self.combo_signal_source.currentTextChanged.connect(self.save_settings)
         
@@ -326,8 +340,11 @@ class TabCopilotVisual(QWidget):
 
     def _update_routine_ui(self):
         is_auto = self.cb_auto_mode.isChecked()
-        
-        for cb in [self.cb_auto_gen, self.cb_download_ccxt, self.cb_download_massive, self.cb_gen_signals]:
+
+        # ВІДКЛЮЧЕНО (RULES_ENGINE / СТРАТЕГІЇ): cb_auto_gen навмисно
+        # прибрано з цього циклу — лишається заблокованим завжди,
+        # незалежно від auto/manual режиму (див. коментар при створенні).
+        for cb in [self.cb_download_ccxt, self.cb_download_massive, self.cb_gen_signals]:
             cb.setEnabled(not is_auto)
             
         if not is_auto:
@@ -343,7 +360,7 @@ class TabCopilotVisual(QWidget):
             self.routine_list.addItem("2. Завантаження даних (CCXT / Massive)")
             self.routine_list.addItem("3. Генерація сигналів (Аналіз стратегій)")
             self.routine_list.addItem("4. Відправка звітів у Telegram")
-            self.routine_list.addItem("5. Авто-генерація стратегій (Топ-10)")
+            self.routine_list.addItem("5. Авто-генерація стратегій (заморожено)")
         else:
             step = 1
             has_download = self.cb_download_ccxt.isChecked() or self.cb_download_massive.isChecked()
