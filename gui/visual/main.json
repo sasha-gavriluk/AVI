@@ -1,0 +1,10 @@
+{
+  "id": "main_window",
+  "type": "QWidget",
+  "window_title": "AVI",
+  "style": "app_window",
+  "layout": "v",
+  "children": [
+    { "$include": "screens/explorer" }
+  ]
+}

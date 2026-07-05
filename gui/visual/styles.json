@@ -1,0 +1,5 @@
+{
+  "app_window": { "bg": "#1E1E2E" },
+  "primary":    { "bg": "#89B4FA", "fg": "#11111B", "radius": 6, "padding": "8 16" },
+  "data_table": { "bg": "transparent", "border": "#45475A" }
+}
