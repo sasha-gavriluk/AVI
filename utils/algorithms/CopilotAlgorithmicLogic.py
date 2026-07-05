@@ -96,6 +96,11 @@ class CopilotAlgorithmicLogic:
             'WCE': 0.6,
             'NGram': 0.6,
             'Anomaly': 0.7,
+            
+            # Рівні
+            'Levels': 0.5,
+            'Liquidity_Sweep': 0.5,
+
             # ШІ Фічі
             'NN_Support_Level': 1.0,
             'NN_Resistance_Level': 1.0,
@@ -247,7 +252,7 @@ class CopilotAlgorithmicLogic:
         adapted_weights = self._adapt_weights(regime, trend_strength)
 
         # 4. Збір сигналів
-        signals = self._gather_signals(last_row, df_window)
+        signals = self._gather_signals(last_row, df_window, nn_support, nn_resistance, regime, direction)
 
         # Без жорстких порогів: сирий sigmoid-вихід (0..1) напряму як signal_dir,
         # той самий порядок величини, що й у решти індикаторів (±1) — масштабування
@@ -519,6 +524,7 @@ class CopilotAlgorithmicLogic:
                 "Bullish_OB": 0.8, "Bearish_OB": 0.8,
                 "Bullish_FVG": 0.6, "Bearish_FVG": 0.6,
                 "WCE": 0.6, "NGram": 0.6, "Anomaly": 0.7,
+                "Levels": 0.5, "Liquidity_Sweep": 0.5,
                 "NN_Support_Level": 1.0, "NN_Resistance_Level": 1.0,
             }
         else:  # FLAT (і VOLATILE — не має значення, торгівля все одно блокується)
@@ -529,6 +535,7 @@ class CopilotAlgorithmicLogic:
                 "Bullish_OB": 0.8, "Bearish_OB": 0.8,
                 "Bullish_FVG": 0.0, "Bearish_FVG": 0.0,
                 "WCE": 0.6, "NGram": 0.6, "Anomaly": 0.7,
+                "Levels": 0.8, "Liquidity_Sweep": 0.8,
                 "NN_Support_Level": 1.3, "NN_Resistance_Level": 1.3,
             }
 
@@ -587,7 +594,7 @@ class CopilotAlgorithmicLogic:
                     if k in filtered: filtered[k] = 0
         return filtered
 
-    def _gather_signals(self, last_row: pd.Series, df: pd.DataFrame) -> dict:
+    def _gather_signals(self, last_row: pd.Series, df: pd.DataFrame, nn_support: float = 0.0, nn_resistance: float = 0.0, regime: str = "FLAT", direction: str = None) -> dict:
         """
         Збирає поточні сигнали (1 для BUY, -1 для SELL, 0 для очікування)
         з усіх наявних у last_row колонок.
@@ -616,7 +623,22 @@ class CopilotAlgorithmicLogic:
             signals['EMA_Cross'] = 1 if val > 0 else (-1 if val < 0 else 0)
 
         # ==========================================
-        # 2. Осцилятори
+        # 3. Алгоритмічні (рівні та структура)
+        # ==========================================
+        algo_mult = 1.0
+
+        if 'Near_Support' in last_row.index and last_row['Near_Support']:
+            signals['Levels'] = 1 * algo_mult
+        elif 'Near_Resistance' in last_row.index and last_row['Near_Resistance']:
+            signals['Levels'] = -1 * algo_mult
+
+        if 'Sweep_Low' in last_row.index and last_row['Sweep_Low']:
+            signals['Liquidity_Sweep'] = 1 * algo_mult
+        elif 'Sweep_High' in last_row.index and last_row['Sweep_High']:
+            signals['Liquidity_Sweep'] = -1 * algo_mult
+
+        # ==========================================
+        # 4. Осцилятори
         # ==========================================
         rsi_cols = [c for c in last_row.index if c.startswith('RSI')]
         if rsi_cols:
@@ -683,9 +705,11 @@ class CopilotAlgorithmicLogic:
                 
         smc_mult = 1.0 if (vol_valid and body_valid) else 0.5
 
+        # ПОВЕРНУТО ПАТЕРНИ ЗІ ЗМЕНШЕНОЮ ВАГОЮ (1/3)
+        pattern_mult = 0.33
         if 'Engulfing' in last_row.index:
-            if last_row['Engulfing'] == 1: signals['Engulfing_Bullish'] = 1 * vol_mult
-            elif last_row['Engulfing'] == -1: signals['Engulfing_Bearish'] = -1 * vol_mult
+            if last_row['Engulfing'] == 1: signals['Engulfing_Bullish'] = 1 * vol_mult * pattern_mult
+            elif last_row['Engulfing'] == -1: signals['Engulfing_Bearish'] = -1 * vol_mult * pattern_mult
 
         pattern_mappings = {
             'Morning_Star': 1,
@@ -702,20 +726,29 @@ class CopilotAlgorithmicLogic:
 
         for pat, dir_val in pattern_mappings.items():
             if pat in last_row.index and last_row[pat] > 0:
-                signals[pat] = dir_val * vol_mult
+                signals[pat] = dir_val * vol_mult * pattern_mult
 
         # ==========================================
         # 5. SMC (Fair Value Gaps & Order Blocks) з AlgorithmProcessor
         # ==========================================
-        if 'FVG_Up' in last_row.index and last_row['FVG_Up']:
-            signals['Bullish_FVG'] = 1 * smc_mult
-        elif 'FVG_Down' in last_row.index and last_row['FVG_Down']:
-            signals['Bearish_FVG'] = -1 * smc_mult
+        
+        # ФІЛЬТР: SMC сигнали беремо ТІЛЬКИ якщо вони співпадають із напрямком глобального тренду!
+        # Якщо ми у флеті (regime != "TREND"), SMC можна торгувати як відбій від границь,
+        # але набагато безпечніше вимагати узгодженості тренду.
+        can_trade_bullish_smc = (regime == "TREND" and direction == "UP") or (nn_support >= 0.5)
+        can_trade_bearish_smc = (regime == "TREND" and direction == "DOWN") or (nn_resistance >= 0.5)
 
-        if 'Bullish_OB' in last_row.index and last_row['Bullish_OB']:
-            signals['Bullish_OB'] = 1 * smc_mult
-        elif 'Bearish_OB' in last_row.index and last_row['Bearish_OB']:
-            signals['Bearish_OB'] = -1 * smc_mult
+        if can_trade_bullish_smc:
+            if 'FVG_Up' in last_row.index and last_row['FVG_Up']:
+                signals['Bullish_FVG'] = 1 * smc_mult
+            if 'Bullish_OB' in last_row.index and last_row['Bullish_OB']:
+                signals['Bullish_OB'] = 1 * smc_mult
+                
+        if can_trade_bearish_smc:
+            if 'FVG_Down' in last_row.index and last_row['FVG_Down']:
+                signals['Bearish_FVG'] = -1 * smc_mult
+            if 'Bearish_OB' in last_row.index and last_row['Bearish_OB']:
+                signals['Bearish_OB'] = -1 * smc_mult
 
         # ==========================================
         # 6. Симбіоз (Контекстна фільтрація)

@@ -131,6 +131,27 @@ class AlgorithmProcessor:
         
         col_name = f'WCE_ANOMALY_{peak_threshold}_{norm_threshold}'
         self.processed_data[col_name] = signals
+        
+    def add_wce_trend_exhaustion(self, wce_column='WCE_10', peak_threshold=15, norm_threshold=3):
+        """
+        Відстежує кумулятивні аномалії WCE токенів (параболічне виснаження).
+        """
+        from utils.algorithms.WrapCandleEngine import WCE
+        from utils.algorithms.WCEAnomalyDetector import WCETrendExhaustionDetector
+        
+        if wce_column not in self.processed_data.columns and wce_column not in self.data.columns:
+            period_str = wce_column.split('_')[-1]
+            period = int(period_str) if period_str.isdigit() else 10
+            wce = WCE(self.data, period=period)
+            self.processed_data[wce_column] = wce.get_combined_sequence_v2()
+            
+        data_to_use = self.processed_data if wce_column in self.processed_data.columns else self.data
+        
+        detector = WCETrendExhaustionDetector(data_to_use, wce_column, peak_threshold, norm_threshold)
+        signals = detector.calculate()
+        
+        col_name = f'WCE_TREND_EXHAUSTION_{peak_threshold}_{norm_threshold}'
+        self.processed_data[col_name] = signals
 
     # ----------------------------------
     # Розрахунок levels
@@ -172,10 +193,10 @@ class AlgorithmProcessor:
         # Перевірка, чи є рівні для комбінування
         if resistance_levels_list and support_levels_list:
             # Комбінування рівнів
-            res_clusters, sup_clusters = self.combine_levels(resistance_levels_list, support_levels_list, clustering_tolerance=0.005)
+            res_clusters, sup_clusters = self.combine_levels(resistance_levels_list, support_levels_list, clustering_tolerance=0.0005)
 
-            # Знаходимо значущі рівні (підтверджені як мінімум одним методом)
-            self.significant_resistances, self.significant_supports = self.find_significant_levels(res_clusters, sup_clusters, methods_count=1)
+            # Знаходимо значущі рівні (підтверджені як мінімум 2 методами)
+            self.significant_resistances, self.significant_supports = self.find_significant_levels(res_clusters, sup_clusters, methods_count=2)
 
             # Додаємо логічні колонки, які показують, чи ціна близька до рівнів
             self.processed_data['Near_Resistance'] = self.processed_data['close'].apply(
@@ -194,7 +215,7 @@ class AlgorithmProcessor:
     # Перевірка near level
     # ----------------------------------
 
-    def is_near_level(self, price, levels, tolerance=0.005):
+    def is_near_level(self, price, levels, tolerance=0.0005):
         """Перевірка near level"""
         return any(abs((price - level) / level) <= tolerance for level in levels)
 
@@ -509,51 +530,88 @@ class AlgorithmProcessor:
     # Виявлення order blocks
     # ----------------------------------
 
-    def detect_order_blocks(self, body_threshold=0.5, min_body_size=0.0001):
-        """Виявлення order blocks"""
-        open_ = self.data['open']
-        close = self.data['close']
-        high = self.data['high']
-        low = self.data['low']
-
-        body = (close - open_).abs()
-        range_ = high - low
-
-        bullish_ob = []
-        bearish_ob = []
-
+    def detect_order_blocks(self, body_threshold=0.5, min_body_size=0.0001, max_lifetime=20):
+        """
+        Виявлення Order Blocks. Справжній OB — це остання протилежна свічка 
+        перед імпульсом. Торгується тільки ПОВЕРНЕННЯ (mitigation) ціни в цей блок.
+        Блок живе максимум `max_lifetime` свічок.
+        """
+        open_ = self.data['open'].values
+        close = self.data['close'].values
+        high = self.data['high'].values
+        low = self.data['low'].values
+        
         n = len(self.data)
-        for i in range(n):
-            r = float(range_.iloc[i])
-            b = float(body.iloc[i])
-
-            if r == 0:
-                bullish_ob.append(False)
-                bearish_ob.append(False)
-                continue
-
-            body_ratio = b / r
-
-            if body_ratio > body_threshold and b > min_body_size:
-                if close.iloc[i] > open_.iloc[i]:
-                    bullish_ob.append(True)
-                    bearish_ob.append(False)
-                else:
-                    bullish_ob.append(False)
-                    bearish_ob.append(True)
-            else:
-                bullish_ob.append(False)
-                bearish_ob.append(False)
-
-        self.processed_data['Bullish_OB'] = bullish_ob
-        self.processed_data['Bearish_OB'] = bearish_ob
+        ob_up_signals = np.zeros(n, dtype=bool)
+        ob_down_signals = np.zeros(n, dtype=bool)
+        
+        active_bullish_obs = [] # список кортежів (high, low, index)
+        active_bearish_obs = [] # список кортежів (high, low, index)
+        
+        last_bearish_idx = -1
+        last_bullish_idx = -1
+        
+        for i in range(2, n):
+            curr_open = open_[i]
+            curr_close = close[i]
+            curr_high = high[i]
+            curr_low = low[i]
+            
+            # Видалення застарілих блоків
+            active_bullish_obs = [ob for ob in active_bullish_obs if i - ob[2] <= max_lifetime]
+            active_bearish_obs = [ob for ob in active_bearish_obs if i - ob[2] <= max_lifetime]
+            
+            # Оновлюємо останні свічки потрібного напрямку
+            if curr_close < curr_open:
+                last_bearish_idx = i
+            elif curr_close > curr_open:
+                last_bullish_idx = i
+                
+            # 1. Перевірка ретесту (mitigation) активних блоків
+            mitigated_bullish_idx = []
+            for idx, ob in enumerate(active_bullish_obs):
+                ob_high, ob_low, _ = ob
+                if curr_low <= ob_high: # Ціна опустилась у бичачий блок
+                    ob_up_signals[i] = True
+                    mitigated_bullish_idx.append(idx)
+                    
+            for idx in reversed(mitigated_bullish_idx):
+                active_bullish_obs.pop(idx)
+                
+            mitigated_bearish_idx = []
+            for idx, ob in enumerate(active_bearish_obs):
+                ob_high, ob_low, _ = ob
+                if curr_high >= ob_low: # Ціна піднялась у ведмежий блок
+                    ob_down_signals[i] = True
+                    mitigated_bearish_idx.append(idx)
+                    
+            for idx in reversed(mitigated_bearish_idx):
+                active_bearish_obs.pop(idx)
+                
+            # 2. Пошук нових блоків через імбаланс (FVG)
+            prev_high = high[i-2]
+            prev_low = low[i-2]
+            
+            gap_up = curr_low > prev_high
+            gap_down = curr_high < prev_low
+            price = curr_close
+            
+            if gap_up and (curr_low - prev_high) / price > 0.0001: # Утворився бичачий імпульс
+                if last_bearish_idx != -1 and last_bearish_idx < i:
+                    active_bullish_obs.append((high[last_bearish_idx], low[last_bearish_idx], i))
+            elif gap_down and (prev_low - curr_high) / price > 0.0001: # Утворився ведмежий імпульс
+                if last_bullish_idx != -1 and last_bullish_idx < i:
+                    active_bearish_obs.append((high[last_bullish_idx], low[last_bullish_idx], i))
+                    
+        self.processed_data['Bullish_OB'] = ob_up_signals
+        self.processed_data['Bearish_OB'] = ob_down_signals
 
 
     # ----------------------------------
     # Виявлення fair value gaps
     # ----------------------------------
 
-    def detect_fair_value_gaps(self, min_gap_ratio=0.0003):
+    def detect_fair_value_gaps(self, min_gap_ratio=0.0001):
         """
         Виявляє Fair Value Gaps (імбаланси) між трьома свічками.
 
@@ -609,6 +667,7 @@ class AlgorithmProcessor:
             'Order_Blocks': self.detect_order_blocks,
             'Fair_Value_Gaps': self.detect_fair_value_gaps,
             'WCE_Anomaly': self.add_wce_anomaly,
+            'WCE_Trend_Exhaustion': self.add_wce_trend_exhaustion,
         }
 
         if self.algorithm_params:

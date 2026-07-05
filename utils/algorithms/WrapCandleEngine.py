@@ -96,7 +96,7 @@ class WCE: # Wrap Candle Engine
             (last_shadow_size - mean_shadow_size) / mad_shadow_size, 
             0
         )
-        deviation = pd.Series(raw_score)
+        deviation = pd.Series(raw_score).fillna(0).round().clip(1, 9).astype(int)
         return deviation.tolist()
     
     #------------------------------
@@ -123,7 +123,39 @@ class WCE: # Wrap Candle Engine
             (last_price_scale - mean_price_scale) / mad_price_scale, 
             0
         )
-        deviation = pd.Series(raw_score)
+        deviation = pd.Series(raw_score).fillna(0).round().clip(1, 9).astype(int)
+        return deviation.tolist()
+    
+    #------------------------------
+    # Буквенний-численний символ. П'ятий (Об'єм)
+    #------------------------------
+
+    #------------------------------
+    # Метод перетворення середнього відхилення об'єму свічки від вікна (Варіант 2)
+    #------------------------------ 
+
+    @_handle_error
+    def _transform_volume_deviation_v2(self, custom_period=None):
+        "Параметри: custom_period - необов'язковий параметр для вказівки власного періоду замість стандартного"
+        period = custom_period if custom_period is not None else self.period
+
+        vol_col = 'volume' if 'volume' in self.data.columns else 'tick_volume'
+        if vol_col in self.data.columns:
+            volume_size = self.data[vol_col]
+        else:
+            # Fallback якщо об'єму немає — повертаємо 5 (норма)
+            return [5] * len(self.data)
+
+        last_volume_size = volume_size
+        mean_volume_size = volume_size.rolling(window=period).mean()
+        mad_volume_size = volume_size.rolling(window=period).apply(self._get_numpy_mad, raw=True)
+
+        raw_score = 5 + np.where(
+            mad_volume_size != 0, 
+            (last_volume_size - mean_volume_size) / mad_volume_size, 
+            0
+        )
+        deviation = pd.Series(raw_score).fillna(0).round().clip(1, 9).astype(int)
         return deviation.tolist()
     
     #------------------------------
@@ -137,15 +169,16 @@ class WCE: # Wrap Candle Engine
         body_deviation_sequence = self._transform_body_deviation_v2()
         shadow_deviation_sequence = self._transform_shadow_deviation_v2()
         price_scale_deviation_sequence = self._transform_price_scale_deviation_v2()
+        volume_deviation_sequence = self._transform_volume_deviation_v2()
 
         combined_sequence = []
         for i in range(len(bsd_sequence)):
             # Перевіряємо, чи є NaN хоча б в одному розрахунку відхилення
-            if pd.isna(body_deviation_sequence[i]) or pd.isna(shadow_deviation_sequence[i]) or pd.isna(price_scale_deviation_sequence[i]):
-                combined_sequence.append("N000") # Явний маркер відсутності даних
+            if pd.isna(body_deviation_sequence[i]) or pd.isna(shadow_deviation_sequence[i]) or pd.isna(price_scale_deviation_sequence[i]) or pd.isna(volume_deviation_sequence[i]):
+                combined_sequence.append("N0000") # Явний маркер відсутності даних
             else:
                 # Якщо дані є, збираємо токен (перетворюючи цифри на int)
-                combined_symbol = f"{bsd_sequence[i]}{int(body_deviation_sequence[i])}{int(shadow_deviation_sequence[i])}{int(price_scale_deviation_sequence[i])}"
+                combined_symbol = f"{bsd_sequence[i]}{int(body_deviation_sequence[i])}{int(shadow_deviation_sequence[i])}{int(price_scale_deviation_sequence[i])}{int(volume_deviation_sequence[i])}"
                 combined_sequence.append(combined_symbol)
 
         return combined_sequence

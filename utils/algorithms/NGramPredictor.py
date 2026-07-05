@@ -93,7 +93,10 @@ class NGramPredictor:
                 if "N" in t or len(t) < 4:
                     parsed_hist.append(t)
                 else:
-                    parsed_hist.append((t[0], int(t[1]), int(t[2]), int(t[3])))
+                    if len(t) >= 5:
+                        parsed_hist.append((t[0], int(t[1]), int(t[2]), int(t[3]), int(t[4])))
+                    else:
+                        parsed_hist.append((t[0], int(t[1]), int(t[2]), int(t[3])))
             parsed_cache[history] = tuple(parsed_hist)
 
         clusters_by_direction = defaultdict(list)
@@ -124,6 +127,11 @@ class NGramPredictor:
                            abs(pt1[3] - pt2[3]) > tolerance:
                             is_similar = False
                             break
+                            
+                        if len(pt1) > 4 and len(pt2) > 4:
+                            if abs(pt1[4] - pt2[4]) > tolerance:
+                                is_similar = False
+                                break
                     elif pt1 != pt2:
                         is_similar = False
                         break

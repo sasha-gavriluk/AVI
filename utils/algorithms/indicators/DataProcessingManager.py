@@ -4,6 +4,7 @@ from utils.algorithms.WrapCandleEngine import WCE
 from utils.algorithms.indicators.AlgorithmProcessor import AlgorithmProcessor
 from utils.algorithms.indicators.PatternDetector import PatternDetector
 from utils.algorithms.indicators.IndicatorProcessor import IndicatorProcessor
+from utils.algorithms.indicators.BacktestAlgorithmProcessor import BacktestAlgorithmProcessor
 
 class DataProcessingManager:
     """Головний менеджер для оркестрації обробки даних"""
@@ -11,7 +12,7 @@ class DataProcessingManager:
     # Ініціалізація
     # ----------------------------------
 
-    def __init__(self, data: pd.DataFrame, indicators_params=None, pattern_params=None, algorithm_params=None, algorithm_processor_class=AlgorithmProcessor):
+    def __init__(self, data: pd.DataFrame, indicators_params=None, pattern_params=None, algorithm_params=None, algorithm_processor_class=BacktestAlgorithmProcessor):
         """Ініціалізація"""
         self.data = data
         self.processed_data = data.copy()
