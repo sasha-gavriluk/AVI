@@ -5,23 +5,22 @@ import os
 import sys
 from collections import deque
 
-# Підключаємо архітектуру Нейромережі з папки models
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../models')))
-try:
-    from ArchitectureRS import ArchitectureNN as ArchitectureRS
-except ImportError:
-    ArchitectureRS = None
+import importlib.util
 
-try:
-    from ArchitectureFB import ArchitectureNN as ArchitectureFB
-except ImportError:
-    ArchitectureFB = None
+def load_architecture(file_path, module_name):
+    try:
+        spec = importlib.util.spec_from_file_location(module_name, file_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.ArchitectureNN
+    except Exception as e:
+        print(f"Помилка завантаження архітектури з {file_path}: {e}")
+        return None
 
-try:
-    from ArchitectureMR import ArchitectureNN as ArchitectureMR
-except ImportError:
-    ArchitectureMR = None
-
+ai_lab_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../../AI_Lab'))
+ArchitectureRS = load_architecture(os.path.join(ai_lab_dir, 'RS', 'ArchitectureNN.py'), 'ArchitectureRS')
+ArchitectureFB = load_architecture(os.path.join(ai_lab_dir, 'FB', 'ArchitectureNN.py'), 'ArchitectureFB')
+ArchitectureMR = load_architecture(os.path.join(ai_lab_dir, 'MR', 'ArchitectureNN.py'), 'ArchitectureMR')
 
 def _compute_atr(df: pd.DataFrame, period=14) -> np.ndarray:
     """ATR(period), та сама формула, що й IndicatorProcessor.add_atr / AI_Lab TestNN.py.
@@ -117,7 +116,7 @@ class CopilotAlgorithmicLogic:
 
         # Модель RS
         if ArchitectureRS is not None:
-            model_path_rs = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../models/rs_weights.pth'))
+            model_path_rs = os.path.join(ai_lab_dir, 'RS', 'rs_weights.pth')
             if os.path.exists(model_path_rs):
                 try:
                     self.nn_rs_model = ArchitectureRS(seq_len=1000).to(self.device)
@@ -128,7 +127,7 @@ class CopilotAlgorithmicLogic:
 
         # Модель FB
         if ArchitectureFB is not None:
-            model_path_fb = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../models/fb_weights.pth'))
+            model_path_fb = os.path.join(ai_lab_dir, 'FB', 'fb_weights.pth')
             if os.path.exists(model_path_fb):
                 try:
                     self.nn_fb_model = ArchitectureFB(seq_len=1000).to(self.device)
@@ -139,7 +138,7 @@ class CopilotAlgorithmicLogic:
 
         # Модель MR
         if ArchitectureMR is not None:
-            model_path_mr = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../models/mr_weights.pth'))
+            model_path_mr = os.path.join(ai_lab_dir, 'MR', 'mr_weights.pth')
             if os.path.exists(model_path_mr):
                 try:
                     self.nn_mr_model = ArchitectureMR(seq_len=1000).to(self.device)
