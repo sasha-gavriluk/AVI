@@ -117,10 +117,12 @@ class NGramAnalyzer(Analyzer):
     #------------------------------
 
     def _parse_token(self, t: str):
-        """Перетворює рядок 'B555' на кортеж ('B', 5, 5, 5)"""
+        """Перетворює рядок 'B555' на кортеж ('B', 5, 5, 5), або 'B5555' на ('B', 5, 5, 5, 5)"""
         if "N" in t or len(t) < 4:
             return t
         else:
+            if len(t) >= 5:
+                return (t[0], int(t[1]), int(t[2]), int(t[3]), int(t[4]))
             return (t[0], int(t[1]), int(t[2]), int(t[3]))
 
     def _build_search_index(self):
@@ -191,6 +193,12 @@ class NGramAnalyzer(Analyzer):
                        abs(pt1[3] - pt2[3]) > self.tolerance:
                         is_similar = False
                         break
+                    
+                    # Перевіряємо об'єм (5-й символ), якщо він є в обох токенах
+                    if len(pt1) > 4 and len(pt2) > 4:
+                        if abs(pt1[4] - pt2[4]) > self.tolerance:
+                            is_similar = False
+                            break
                 elif pt1 != pt2:
                     is_similar = False
                     break

@@ -30,24 +30,7 @@ class BacktestAlgorithmProcessor(AlgorithmProcessor):
         self.processed_data['Peak_Low'] = (lows == rolling_min) & lows.notna()
         return self.processed_data['high'][self.processed_data['Peak_High']], self.processed_data['low'][self.processed_data['Peak_Low']]
 
-    def detect_fair_value_gaps(self, min_gap_ratio=0.0003):
-        high = self.processed_data['high']
-        low = self.processed_data['low']
-        close = self.processed_data['close']
-        
-        prev2_high = high.shift(2)
-        prev2_low = low.shift(2)
-        
-        gap_up = low > prev2_high
-        gap_down = high < prev2_low
-        
-        gap_size_up = low - prev2_high
-        gap_size_down = prev2_low - high
-        
-        self.processed_data['FVG_Up'] = gap_up & ((gap_size_up / close) > min_gap_ratio)
-        self.processed_data['FVG_Down'] = gap_down & ((gap_size_down / close) > min_gap_ratio)
-        self.processed_data['FVG_Size'] = np.where(self.processed_data['FVG_Up'], gap_size_up, 
-                                          np.where(self.processed_data['FVG_Down'], gap_size_down, np.nan))
+
 
     def detect_liquidity_sweep(self, swing_window=3, tolerance=0.0005):
         highs = self.processed_data['high']
@@ -184,10 +167,10 @@ class BacktestAlgorithmProcessor(AlgorithmProcessor):
             all_resistances = pd.concat(resistance_levels_list).dropna() if resistance_levels_list else pd.Series()
             all_supports = pd.concat(support_levels_list).dropna() if support_levels_list else pd.Series()
 
-            res_clusters = self.cluster_levels(all_resistances, tolerance=0.005) 
-            sup_clusters = self.cluster_levels(all_supports, tolerance=0.005) 
+            res_clusters = self.cluster_levels(all_resistances, tolerance=0.0005) 
+            sup_clusters = self.cluster_levels(all_supports, tolerance=0.0005) 
 
-            self.significant_resistances, self.significant_supports = self.find_significant_levels(res_clusters, sup_clusters, methods_count=1)
+            self.significant_resistances, self.significant_supports = self.find_significant_levels(res_clusters, sup_clusters, methods_count=2)
 
             self.processed_data['Near_Resistance'] = self.processed_data['close'].apply(
                 lambda price: self.is_near_level(price, self.significant_resistances)
@@ -207,6 +190,8 @@ class BacktestAlgorithmProcessor(AlgorithmProcessor):
             'Liquidity_Sweep': self.detect_liquidity_sweep,
             'Order_Blocks': self.detect_order_blocks,
             'Fair_Value_Gaps': self.detect_fair_value_gaps,
+            'WCE_Anomaly': self.add_wce_anomaly,
+            'WCE_Trend_Exhaustion': self.add_wce_trend_exhaustion,
         }
 
         if self.algorithm_params:
