@@ -1,0 +1,108 @@
+{
+  "id": "settings_panel",
+  "type": "QWidget",
+  "layout": "v",
+  "children": [
+    {
+      "id": "title_label",
+      "type": "QLabel",
+      "text": "Налаштування Роботи (Massive & CCXT)"
+    },
+    {
+      "type": "QLabel",
+      "text": "Торговий режим:"
+    },
+    {
+      "type": "QWidget",
+      "layout": "h",
+      "children": [
+        {
+          "id": "rb_futures",
+          "type": "QRadioButton",
+          "text": "Ф'ючерси",
+          "checked": true,
+          "on_toggled": "app.mode_changed"
+        },
+        {
+          "id": "rb_bo",
+          "type": "QRadioButton",
+          "text": "БО",
+          "on_toggled": "app.mode_changed"
+        }
+      ]
+    },
+    {
+      "type": "QLabel",
+      "text": "Ринок:"
+    },
+    {
+      "type": "QWidget",
+      "layout": "h",
+      "children": [
+        {
+          "id": "rb_crypto",
+          "type": "QRadioButton",
+          "text": "Crypto",
+          "checked": true,
+          "on_toggled": "app.market_changed"
+        },
+        {
+          "id": "rb_forex",
+          "type": "QRadioButton",
+          "text": "Forex",
+          "on_toggled": "app.market_changed"
+        }
+      ]
+    },
+    {
+      "type": "QLabel",
+      "text": "Активи для аналізу:"
+    },
+    {
+      "type": "QWidget",
+      "layout": "h",
+      "children": [
+        {
+          "id": "input_assets_list",
+          "type": "QLineEdit",
+          "text": ""
+        },
+        {
+          "id": "btn_assets_dialog",
+          "type": "QPushButton",
+          "text": "Вибрати...",
+          "on_clicked": "app.open_assets_dialog"
+        }
+      ]
+    },
+    {
+      "type": "QLabel",
+      "text": "Таймфрейм:"
+    },
+    {
+      "id": "input_timeframe",
+      "type": "QLineEdit",
+      "text": "15m"
+    },
+    {
+      "type": "QLabel",
+      "text": "Початковий баланс ($):"
+    },
+    {
+      "id": "input_account_balance",
+      "type": "QLineEdit",
+      "text": "1000.0"
+    },
+    {
+      "id": "btn_start",
+      "type": "QPushButton",
+      "text": "🚀 Запустити Термінал",
+      "on_clicked": "app.start"
+    },
+    {
+      "id": "status_label",
+      "type": "QLabel",
+      "text": "Готовий до запуску."
+    }
+  ]
+}

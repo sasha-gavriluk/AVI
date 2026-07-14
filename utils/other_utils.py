@@ -24,4 +24,5 @@ def _save_to_db(func):
             result, table_name = output
             instance.db_manager.insert_data_from_pandas_auto(table_name=table_name, df=result)
 
+        return output
     return wrapper

@@ -178,9 +178,22 @@ class BacktestAlgorithmProcessor(AlgorithmProcessor):
             self.processed_data['Near_Support'] = self.processed_data['close'].apply(
                 lambda price: self.is_near_level(price, self.significant_supports)
             )
+
+            def get_nearest_resistance(price):
+                res = [r for r in self.significant_resistances if r > price]
+                return min(res) if res else np.nan
+
+            def get_nearest_support(price):
+                sup = [s for s in self.significant_supports if s < price]
+                return max(sup) if sup else np.nan
+
+            self.processed_data['Nearest_Resistance_Price'] = self.processed_data['close'].apply(get_nearest_resistance)
+            self.processed_data['Nearest_Support_Price'] = self.processed_data['close'].apply(get_nearest_support)
         else:
             self.processed_data['Near_Resistance'] = False
             self.processed_data['Near_Support'] = False
+            self.processed_data['Nearest_Resistance_Price'] = np.nan
+            self.processed_data['Nearest_Support_Price'] = np.nan
 
     def process_data(self):
         algo_methods = {

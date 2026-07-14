@@ -1,10 +1,17 @@
 {
   "id": "main_window",
-  "type": "QWidget",
-  "window_title": "AVI",
-  "style": "app_window",
-  "layout": "v",
+  "type": "QTabWidget",
+  "window_title": "AVI Trading Terminal",
+  "minimum_width": 450,
+  "minimum_height": 650,
   "children": [
-    { "$include": "screens/explorer" }
+    {
+      "tab_title": "⚙ Налаштування",
+      "$include": "screens/settings_screen.json"
+    },
+    {
+      "tab_title": "📈 Сигнали",
+      "$include": "screens/signals_screen.json"
+    }
   ]
 }

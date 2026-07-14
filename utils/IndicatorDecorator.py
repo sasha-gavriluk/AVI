@@ -60,7 +60,11 @@ class IndicatorDecorator:
         wce = WCE(df, period=period)
         wce_sequence = wce.get_combined_sequence_v2()
 
-        new_tokens = wce_sequence[-len(df_copy):]
+        if len(df_copy) == 0:
+            new_tokens = []
+        else:
+            new_tokens = wce_sequence[-len(df_copy):]
+            
         df_copy['WCE'] = new_tokens
 
         return df_copy

@@ -29,16 +29,19 @@ class GapAnalyzer:
                 print(f"Помилка завантаження календаря свят: {e}")
 
     def is_expected_gap(self, gap_start_ms: int, gap_end_ms: int,
-                        asset_name: str, timeframe_ms: int) -> bool:
+                        asset_name: str, timeframe_ms: int, market_type: str = "Forex") -> bool:
         """
         Повертає True якщо прогалина є 'очікуваною' (вихідний/свято)
         і НЕ потребує завантаження.
         """
+        if market_type == "Crypto":
+            return False
+            
         start = pd.Timestamp(gap_start_ms, unit='ms', tz='UTC')
         end = pd.Timestamp(gap_end_ms, unit='ms', tz='UTC')
 
         # 1. Якщо це форекс-актив і прогалина перекриває вихідні
-        if self._is_forex_asset(asset_name):
+        if market_type == "Forex" or self._is_forex_asset(asset_name):
             if self._gap_covers_weekend(start, end):
                 return True
             if self._gap_covers_holiday(start, end):
@@ -76,11 +79,11 @@ class GapAnalyzer:
         return False
 
     def filter_real_gaps(self, gaps: list, asset_name: str,
-                         timeframe_ms: int) -> list:
+                         timeframe_ms: int, market_type: str = "Forex") -> list:
         """Повертає тільки реальні прогалини (не вихідні і не свята)."""
         return [
             g for g in gaps
             if not self.is_expected_gap(
-                g['gap_start'], g['gap_end'], asset_name, timeframe_ms
+                g['gap_start'], g['gap_end'], asset_name, timeframe_ms, market_type
             )
         ]

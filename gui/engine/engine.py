@@ -181,13 +181,22 @@ def _build_node(node):
 
     children = node.get("children")
     if children:
-        layout_cls = _LAYOUTS.get(node.get("layout", "v"), QtWidgets.QVBoxLayout)
-        layout = layout_cls()
-        for child in children:
-            child_widget = _build_node(child)
-            if child_widget is not None:
-                layout.addWidget(child_widget)
-        widget.setLayout(layout)
+        if isinstance(widget, QtWidgets.QTabWidget):
+            # Спеціальна обробка для QTabWidget
+            for child in children:
+                child_widget = _build_node(child)
+                if child_widget is not None:
+                    tab_title = child.get("tab_title", "Tab")
+                    widget.addTab(child_widget, tab_title)
+        else:
+            # Звичайна обробка (layout)
+            layout_cls = _LAYOUTS.get(node.get("layout", "v"), QtWidgets.QVBoxLayout)
+            layout = layout_cls()
+            for child in children:
+                child_widget = _build_node(child)
+                if child_widget is not None:
+                    layout.addWidget(child_widget)
+            widget.setLayout(layout)
 
     return widget
 

@@ -1,5 +1,46 @@
 {
-  "app_window": { "bg": "#1E1E2E" },
-  "primary":    { "bg": "#89B4FA", "fg": "#11111B", "radius": 6, "padding": "8 16" },
-  "data_table": { "bg": "transparent", "border": "#45475A" }
+  "app_window": { 
+    "bg": "#11111B", 
+    "fg": "#CDD6F4" 
+  },
+  "panel": {
+    "bg": "#1E1E2E",
+    "radius": 12,
+    "padding": "20",
+    "border": "#313244"
+  },
+  "primary": { 
+    "bg": "#89B4FA", 
+    "fg": "#11111B", 
+    "radius": 8, 
+    "padding": "12 24", 
+    "font-weight": "bold",
+    "font-size": "14px"
+  },
+  "input": { 
+    "bg": "#313244", 
+    "fg": "#CDD6F4", 
+    "radius": 6, 
+    "padding": "8 12", 
+    "border": "#45475A",
+    "font-size": "13px"
+  },
+  "label": { 
+    "fg": "#BAC2DE", 
+    "font-size": "13px",
+    "font-weight": "600"
+  },
+  "title": {
+    "fg": "#89B4FA",
+    "font-size": "18px",
+    "font-weight": "bold"
+  },
+  "status_ok": {
+    "fg": "#A6E3A1",
+    "font-size": "13px"
+  },
+  "status_error": {
+    "fg": "#F38BA8",
+    "font-size": "13px"
+  }
 }

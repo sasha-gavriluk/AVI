@@ -248,10 +248,23 @@ class DataBaseManager:
     # Метод для виводу певного діапазону даних з кінця таблиці в pandas DataFrame
     #------------------------------
 
+    def table_exists(self, table_name: str) -> bool:
+        try:
+            with _db_lock:
+                tables_df = self.conn.execute("SHOW TABLES;").df()
+                return table_name in tables_df['name'].tolist()
+        except Exception:
+            return False
+
     @_handle_error
-    def get_data_by_number_range(self, table_name, number):
-        "Параметри: table_name - назва таблиці, number - кількість рядків для отримання"
+    def get_data_by_number_range(self, table_name: str, number: int) -> pd.DataFrame:
+        "Параметри: table_name - назва таблиці, number - кількість останніх рядків для отримання"
         self._validate_table_name(table_name)
+        
+        # Перевіряємо, чи існує таблиця, щоб не спамити помилками для нових активів
+        if not self.table_exists(table_name):
+            return None
+            
         try:
             with _db_lock:
                 df = self.conn.cursor().execute(f'SELECT * FROM "{table_name}" ORDER BY timestamp DESC LIMIT {number}').fetchdf()
@@ -260,7 +273,7 @@ class DataBaseManager:
             if df is not None and not df.empty and 'timestamp' in df.columns:
                 df = df.sort_values('timestamp').reset_index(drop=True)
         except Exception as e:
-            print(f"Помилка при отриманні даних за діапазоном: {e} - можливо, в таблиці недостатньо даних для отримання запитуваного діапазону. Використовується лише наявні дані.")
+            # Не принтимо помилку, щоб не спамити консоль при ініціалізації нових таблиць
             return None
         return df
     

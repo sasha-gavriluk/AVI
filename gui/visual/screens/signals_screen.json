@@ -1,0 +1,18 @@
+{
+  "id": "signals_panel",
+  "type": "QWidget",
+  "layout": "v",
+  "enabled": true,
+  "children": [
+    {
+      "id": "signals_title",
+      "type": "QLabel",
+      "text": "Моніторинг Сигналів"
+    },
+    {
+      "id": "signals_placeholder",
+      "type": "QWidget",
+      "layout": "v"
+    }
+  ]
+}
