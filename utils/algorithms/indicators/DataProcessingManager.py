@@ -12,11 +12,6 @@ ai_lab_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../.
 if ai_lab_dir not in sys.path:
     sys.path.insert(0, ai_lab_dir)
 
-try:
-    from PT.PT import PT
-except ImportError:
-    PT = None
-
 class DataProcessingManager:
     """Головний менеджер для оркестрації обробки даних"""
     # ----------------------------------
@@ -34,7 +29,6 @@ class DataProcessingManager:
         self.pattern_detector = PatternDetector(
             self.data, self.processed_data, pattern_params
         )
-        self.pt_model = PT() if PT is not None else None
         # Use the specified algorithm_processor_class
         self.algorithm_processor = algorithm_processor_class(
             self.data, self.processed_data, algorithm_params
@@ -48,7 +42,5 @@ class DataProcessingManager:
         """Головний процес обробки: індикатори -> патерни -> алгоритми."""
         self.indicator_processor.process_data()
         self.pattern_detector.process_data()
-        if self.pt_model is not None:
-            self.processed_data = self.pt_model.process(self.processed_data)
         self.algorithm_processor.process_data()
         return self.processed_data

@@ -505,25 +505,44 @@ class FCryptoLogic:
             reason = last_row.get(reason_col, None) if reason_col else None
             triggers.append((key, sig, conf, reason))
 
-        # 3. Зважений скоринг: КОЖЕН тригер додає свою вагу × впевненість НАПРЯМУ.
-        #    Без сімей і без стель — кожен сигнал має власний голос (як у старому боті).
-        buy_score = 0.0
-        sell_score = 0.0
+        # 3. Групуємо тригери в СІМ'Ї незалежних джерел. Скорельовані тригери (напр. BOS і
+        #    CHoCH зі структури) підсумовуються ВСЕРЕДИНІ сім'ї й дають ОДИН голос — інакше
+        #    клони роздували б переконаність. Внесок тригера = вага (за режимом) × впевненість.
+        families = {}   # family -> {'buy': score, 'sell': score, 'cap': max_weight}
         fired = []      # окремі тригери, що дали сигнал — для UI/діагностики
         block_reasons = []
 
         for name, sig, conf, reason in triggers:
             w = regime_weights.get(name, 0.0)
+            fam = self._FAMILY_OF.get(name, name)
+            f = families.setdefault(fam, {'buy': 0.0, 'sell': 0.0, 'cap': 0.0})
+            f['cap'] = max(f['cap'], w)   # стеля сім'ї = «одне сильне підтвердження»
             if sig == 'BUY':
-                buy_score += w * conf
-                fired.append({'name': name, 'family': self._FAMILY_OF.get(name, name), 'signal': sig, 'weight': w, 'contribution': round(w * conf, 3)})
+                f['buy'] += w * conf
+                fired.append({'name': name, 'family': fam, 'signal': sig, 'weight': w, 'contribution': round(w * conf, 3)})
             elif sig == 'SELL':
-                sell_score += w * conf
-                fired.append({'name': name, 'family': self._FAMILY_OF.get(name, name), 'signal': sig, 'weight': w, 'contribution': round(w * conf, 3)})
+                f['sell'] += w * conf
+                fired.append({'name': name, 'family': fam, 'signal': sig, 'weight': w, 'contribution': round(w * conf, 3)})
             elif reason:
                 block_reasons.append(f"{name}: {reason}")
 
-        # 3.5 Штраф контр-тренду (лише TREND): не торгувати ПРОТИ тренду, окрім як біля
+        # 4. Кожна сім'я дає ОДИН голос: напрямок = чистий (buy−sell), сила обмежена
+        #    стелею сім'ї (щоб кілька SMC-тригерів не переважили структурний числом).
+        buy_score = 0.0
+        sell_score = 0.0
+        buy_families = set()
+        sell_families = set()
+
+        for fam, f in families.items():
+            net = f['buy'] - f['sell']
+            if net > 0:
+                buy_score += min(net, f['cap'])
+                buy_families.add(fam)
+            elif net < 0:
+                sell_score += min(-net, f['cap'])
+                sell_families.add(fam)
+
+        # 4.5 Штраф контр-тренду (лише TREND): не торгувати ПРОТИ тренду, окрім як біля
         #     сильної протилежної зони. Напрямок тренду беремо з FRS-трендової зони,
         #     послаблення — з близькості/сили горизонтальної зони на боці входу.
         counter_trend_penalty = 0.0
@@ -542,28 +561,33 @@ class FCryptoLogic:
 
         active_triggers = len(fired)
 
-        # 4. Переможець — більший зважений бік (без ворота ≥2 сімей).
+        # 5. Переможець + перевірка КОНФЛЮЕНСУ незалежних джерел.
         if buy_score > sell_score and buy_score > 0:
-            win_dir, win_score = 'BUY', buy_score
+            win_dir, win_score, win_fams = 'BUY', buy_score, buy_families
         elif sell_score > buy_score and sell_score > 0:
-            win_dir, win_score = 'SELL', sell_score
+            win_dir, win_score, win_fams = 'SELL', sell_score, sell_families
         else:
-            win_dir, win_score = 'NEUTRAL', 0.0
+            win_dir, win_score, win_fams = 'NEUTRAL', 0.0, set()
 
         final_signal = 'NEUTRAL'
         final_confidence = 0.0
         final_reason = "Недостатньо тригерів для входу"
 
         if win_dir != 'NEUTRAL':
-            final_signal = win_dir
-            # Впевненість зростає з накопиченою зваженою переконаністю (насичення).
-            final_confidence = 1.0 - math.exp(-win_score / self._CONFIDENCE_SCALE)
-            final_reason = None
+            # Вхід дозволено: або ≥2 РІЗНІ сім'ї згодні, або спрацював структурний тригер
+            # (сім'я 'zone') — він сам багатофакторний і має право стояти один.
+            if len(win_fams) >= 2 or self._PRIMARY_FAMILY in win_fams:
+                final_signal = win_dir
+                # Впевненість зростає з накопиченою переконаністю (насичення), а не є
+                # середнім одного тригера: один слабкий сигнал → низька впевненість.
+                final_confidence = 1.0 - math.exp(-win_score / self._CONFIDENCE_SCALE)
+                final_reason = None
+            else:
+                fam_list = ", ".join(sorted(win_fams))
+                final_reason = (f"Сигнал {win_dir} відхилено: лише одне джерело ({fam_list}); "
+                                f"потрібен збіг ≥2 сімей або структурний тригер")
         elif active_triggers == 0 and block_reasons:
             final_reason = " | ".join(block_reasons)
-
-        # Сім'ї, що підтримали фінальний напрямок — лише для логування/діагностики.
-        win_fams = sorted({f['family'] for f in fired if f['signal'] == final_signal}) if final_signal != 'NEUTRAL' else []
 
         return {
             "signal": final_signal,
@@ -572,7 +596,7 @@ class FCryptoLogic:
             "market_state": market_state,
             "active_triggers": active_triggers,
             "counter_trend_penalty": round(counter_trend_penalty, 3),
-            "confluence_families": win_fams,
+            "confluence_families": sorted(win_fams) if final_signal != 'NEUTRAL' else [],
             "active_signals": fired,
             "support_price": last_row.get('FRS_sup_price'),
             "resistance_price": last_row.get('FRS_res_price')

@@ -32,111 +32,120 @@ class BacktestAlgorithmProcessor(AlgorithmProcessor):
 
 
 
-    def detect_liquidity_sweep(self, swing_window=3, tolerance=0.0005):
-        highs = self.processed_data['high']
-        lows = self.processed_data['low']
-        past_highs = highs.shift(1).rolling(window=swing_window, min_periods=1).max()
-        past_lows = lows.shift(1).rolling(window=swing_window, min_periods=1).min()
-        
-        self.processed_data['Sweep_High'] = highs > past_highs * (1 + tolerance)
-        self.processed_data['Sweep_Low'] = lows < past_lows * (1 - tolerance)
-        self.processed_data['Sweep_High'] = self.processed_data['Sweep_High'].fillna(False)
-        self.processed_data['Sweep_Low'] = self.processed_data['Sweep_Low'].fillna(False)
-
     def detect_market_structure(self):
-        self.find_fractal_levels()
-        
         n = len(self.processed_data)
-        points = [None] * n
-        types = [None] * n
-        hl_flags = [0] * n
-        
-        last_high_val = -np.inf
-        last_low_val = np.inf
+        w = self.fractal_window
         
         highs = self.processed_data['high'].values
         lows = self.processed_data['low'].values
-        fh = self.processed_data['Fractal_High'].values
-        fl = self.processed_data['Fractal_Low'].values
-        
-        for i in range(n):
-            if fh[i]:
-                points[i] = 'swing_high'
-                if highs[i] > last_high_val:
-                    types[i] = 'HH'
-                    hl_flags[i] = 1
-                else:
-                    types[i] = 'LH'
-                    hl_flags[i] = -1
-                last_high_val = highs[i]
-                last_low_val = np.inf 
-            elif fl[i]:
-                points[i] = 'swing_low'
-                if lows[i] < last_low_val:
-                    types[i] = 'LL'
-                    hl_flags[i] = -1
-                else:
-                    types[i] = 'HL'
-                    hl_flags[i] = 1
-                last_low_val = lows[i]
-                last_high_val = -np.inf 
-            else:
-                if i > 0:
-                    types[i] = types[i-1]
-                    hl_flags[i] = hl_flags[i-1]
-                    
-        self.processed_data['Market_Structure_Point'] = points
-        self.processed_data['Market_Structure_Type'] = types
-        self.processed_data['Highs_Lows'] = hl_flags
-
-    def detect_bos_choch(self):
-        if 'Market_Structure_Type' not in self.processed_data.columns:
-            self.detect_market_structure()
-            
-        n = len(self.processed_data)
-        bos = [False] * n
-        choch = [False] * n
-        
-        trend_dir = None
-        last_hh = None
-        last_hl = None
-        last_ll = None
-        last_lh = None
-        
-        types = self.processed_data['Market_Structure_Type'].values
         closes = self.processed_data['close'].values
         
-        for i in range(n):
-            point = types[i]
-            price = closes[i]
-            prev_point = types[i-1] if i > 0 else None
-            
-            if point is not None and point != prev_point:
-                if point == 'HH':
-                    if last_hh is None or price > last_hh: last_hh = price
-                    if trend_dir == 'downtrend' and last_lh is not None and price > last_lh:
-                        choch[i] = True
-                        trend_dir = 'uptrend'
-                    elif trend_dir == 'uptrend' and last_hh is not None and price > last_hh:
-                        bos[i] = True
-                    elif trend_dir is None:
-                        trend_dir = 'uptrend'
-                elif point == 'HL':
-                    if last_hl is None or price > last_hl: last_hl = price
-                elif point == 'LL':
-                    if last_ll is None or price < last_ll: last_ll = price
-                    if trend_dir == 'uptrend' and last_hl is not None and price < last_hl:
-                        choch[i] = True
-                        trend_dir = 'downtrend'
-                    elif trend_dir == 'downtrend' and last_ll is not None and price < last_ll:
-                        bos[i] = True
-                    elif trend_dir is None:
-                        trend_dir = 'downtrend'
-                elif point == 'LH':
-                    if last_lh is None or price < last_lh: last_lh = price
+        # Векторизований пошук справжніх фракталів (історичний факт)
+        high_series = self.processed_data['high']
+        low_series = self.processed_data['low']
+        rolling_max = high_series.rolling(window=2*w+1, center=True, min_periods=1).max()
+        rolling_min = low_series.rolling(window=2*w+1, center=True, min_periods=1).min()
+        
+        fh_array = (high_series == rolling_max).values
+        fl_array = (low_series == rolling_min).values
+        
+        # Масиви для результатів
+        ms_point = [None] * n
+        ms_type = [None] * n
+        hl_flags = [0] * n
+        bos = [False] * n
+        choch = [False] * n
+        sweep_high = [False] * n
+        sweep_low = [False] * n
+        
+        # Стан
+        active_swing_high = np.nan
+        active_swing_low = np.nan
+        prev_peak = np.nan
+        prev_valley = np.nan
+        trend_dir = None
+        
+        for i in range(w, n):
+            # 1. Відкриваємо (підтверджуємо) фрактал, який відбувся w свічок тому
+            if fh_array[i-w]:
+                peak_price = highs[i-w]
+                ms_point[i-w] = 'swing_high'
+                
+                # Уникаємо дублювання однакових піків підряд
+                if np.isnan(prev_peak) or peak_price != prev_peak:
+                    if np.isnan(prev_peak) or peak_price > prev_peak:
+                        ms_type[i-w] = 'HH'
+                        hl_flags[i-w] = 1
+                    else:
+                        ms_type[i-w] = 'LH'
+                        hl_flags[i-w] = -1
+                    prev_peak = peak_price
+                
+                active_swing_high = peak_price
+                
+            if fl_array[i-w]:
+                valley_price = lows[i-w]
+                ms_point[i-w] = 'swing_low'
+                
+                if np.isnan(prev_valley) or valley_price != prev_valley:
+                    if np.isnan(prev_valley) or valley_price < prev_valley:
+                        ms_type[i-w] = 'LL'
+                        hl_flags[i-w] = -1
+                    else:
+                        ms_type[i-w] = 'HL'
+                        hl_flags[i-w] = 1
+                    prev_valley = valley_price
                     
+                active_swing_low = valley_price
+                
+            # 2. Перевірка на Liquidity Sweep (Turtle Soup)
+            curr_high = highs[i]
+            curr_low = lows[i]
+            curr_close = closes[i]
+            
+            if not np.isnan(active_swing_high):
+                if curr_high > active_swing_high and curr_close <= active_swing_high:
+                    sweep_high[i] = True
+                    
+            if not np.isnan(active_swing_low):
+                if curr_low < active_swing_low and curr_close >= active_swing_low:
+                    sweep_low[i] = True
+                    
+            # 3. Перевірка на BOS / CHoCH
+            if not np.isnan(active_swing_high) and curr_close > active_swing_high:
+                if trend_dir == 'downtrend':
+                    choch[i] = True
+                    trend_dir = 'uptrend'
+                else:
+                    bos[i] = True
+                    trend_dir = 'uptrend'
+                active_swing_high = np.nan # Злам відбувся, рівень пробито
+                
+            if not np.isnan(active_swing_low) and curr_close < active_swing_low:
+                if trend_dir == 'uptrend':
+                    choch[i] = True
+                    trend_dir = 'downtrend'
+                else:
+                    bos[i] = True
+                    trend_dir = 'downtrend'
+                active_swing_low = np.nan
+                
+        # Записуємо в DataFrame
+        self.processed_data['Market_Structure_Point'] = ms_point
+        self.processed_data['Market_Structure_Type'] = ms_type
+        self.processed_data['Highs_Lows'] = hl_flags
         self.processed_data['BOS'] = bos
         self.processed_data['CHoCH'] = choch
+        self.processed_data['Sweep_High'] = sweep_high
+        self.processed_data['Sweep_Low'] = sweep_low
+
+    def detect_bos_choch(self):
+        # Вже розраховано в detect_market_structure для гарантії синхронізації
+        pass
+
+    def detect_liquidity_sweep(self, swing_window=3, tolerance=0.0005):
+        # Вже розраховано в detect_market_structure
+        pass
 
     def calculate_levels(self):
         self.find_fractal_levels()
