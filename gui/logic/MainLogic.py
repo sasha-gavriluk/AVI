@@ -4,19 +4,19 @@ import time
 import pandas as pd
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QScrollArea, QWidget, QCheckBox, QGridLayout
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from gui.engine import engine
+from gui.engine import Engine as engine
 
 from utils.Trading.CCXTModule import CCXTModule
 from utils.Trading.MassiveModule import MassiveModule
 from utils.DataBaseManager import DataBaseManager
 from utils.PathManager import PathManager
-from utils.gap_analyzer import GapAnalyzer
+from utils.GapAnalyzer import GapAnalyzer
 
-from gui.visual.widgets.signal_card import SignalCard
-from gui.visual.widgets.flow_layout import FlowLayout
+from gui.visual.widgets.SignalCard import SignalCard
+from gui.visual.widgets.FlowLayout import FlowLayout
 from utils.algorithms.FCryptoLogic import FCryptoLogic
 
-import utils.config as app_config
+import utils.Config as app_config
 
 def parse_timeframe(tf):
     if tf.endswith('m'): return int(tf[:-1]), 'minute'
@@ -42,7 +42,7 @@ class DataFetcherWorker(QThread):
         try:
             self.progress.emit("Ініціалізація підключень...")
             if self.market == "Crypto" and hasattr(self.logic, 'ccxt'):
-                import utils.config as app_config
+                import utils.Config as app_config
                 if app_config.bybit_key and app_config.bybit_secret_key:
                     self.logic.ccxt.connect(app_config.bybit_key, app_config.bybit_secret_key)
 

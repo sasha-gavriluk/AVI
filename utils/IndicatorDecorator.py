@@ -2,7 +2,7 @@ import types
 import pandas as pd
 
 from utils.algorithms.WrapCandleEngine import WCE
-from utils.other_utils import _handle_error
+from utils.OtherUtils import _handle_error
 
 #-----------------------------------
 # Клас декоратор для обчислення індикаторів та WCE

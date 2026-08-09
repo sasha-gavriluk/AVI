@@ -3,7 +3,7 @@ import os
 import pandas as pd
 import threading
 
-from utils.other_utils import _handle_error
+from utils.OtherUtils import _handle_error
 
 _db_lock = threading.RLock()
 _connections = {}

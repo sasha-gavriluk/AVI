@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy.signal import argrelextrema
-from utils.other_utils import _handle_error
+from utils.OtherUtils import _handle_error
 
 class FRS:
     "Детермінований індикатор зон (Контекст). Шукає зони підтримки/опору на основі минулих екстремумів."

@@ -3,7 +3,7 @@ import time
 import pandas as pd
 
 from utils.DataBaseManager import DataBaseManager
-from utils.other_utils import _handle_error, _save_to_db
+from utils.OtherUtils import _handle_error, _save_to_db
 
 # Декоратор для обчислення індикаторів та WCE
 from utils.IndicatorDecorator import IndicatorDecorator

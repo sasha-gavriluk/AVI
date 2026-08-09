@@ -6,7 +6,7 @@ from collections import defaultdict
 
 from utils.algorithms.backtesting.SignalProvider import Analyzer
 from utils.algorithms.NGramPredictor import NGramPredictor
-from utils.config import ensure_predictions_dir_exists
+from utils.Config import ensure_predictions_dir_exists
 
 #==================================
 # NGram Analyzer

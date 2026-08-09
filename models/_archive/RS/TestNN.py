@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from ArchitectureNN import ArchitectureNN
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from unified_dataset import UnifiedDatasetFactory, ChunkedUnifiedDataset
+from UnifiedDataset import UnifiedDatasetFactory, ChunkedUnifiedDataset
 
 WINDOW_SIZES = ArchitectureNN.WINDOW_SIZES  # [1000, 500, 200, 100, 50]
 

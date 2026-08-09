@@ -1,10 +1,10 @@
 import pandas as pd
 
-from .block_a_context import MarketRegimeDetector, ConsensusEvaluator, HTFAligner
-from .block_b_state import TrendPhaseDetector, FlatPhaseDetector, RiskMap
-from .block_c_entry import EntryTriggerValidator, RewardRiskCalculator, InvalidationRules
-from .block_d_risk import AccountGuard, CorrelationGuard, EventGuard, PositionSizer
-from .block_e_management import PositionManager
+from .BlockAContext import MarketRegimeDetector, ConsensusEvaluator, HTFAligner
+from .BlockBState import TrendPhaseDetector, FlatPhaseDetector, RiskMap
+from .BlockCEntry import EntryTriggerValidator, RewardRiskCalculator, InvalidationRules
+from .BlockDRisk import AccountGuard, CorrelationGuard, EventGuard, PositionSizer
+from .BlockEManagement import PositionManager
 
 #------------------------------
 # Головний контролер рішень

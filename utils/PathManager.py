@@ -68,7 +68,7 @@ class PathManager:
         os.makedirs(predictions_dir, exist_ok=True)
         
         # Створюємо rules.json та strategy_meta.json
-        from utils.create_insurance import Insurance
+        from utils.CreateInsurance import Insurance
         Insurance.ensure_files_exist(user_data_dir)
         
         # Створюємо дефолтний порожній/базовий файл налаштувань

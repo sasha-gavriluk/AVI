@@ -3,7 +3,7 @@ import torch
 import pandas as pd
 import numpy as np
 from .ArchitectureNN import ArchitectureNN
-from utils.other_utils import _handle_error
+from utils.OtherUtils import _handle_error
 
 #------------------------------
 # Обчислення ATR

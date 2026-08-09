@@ -4,7 +4,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from PyQt6.QtWidgets import QApplication
-from gui.engine import engine
+from gui.engine import Engine as engine
 
 #-----------------------------------
 # Демо запуску движка: будує вікно з gui/visual/main.json і показує його.

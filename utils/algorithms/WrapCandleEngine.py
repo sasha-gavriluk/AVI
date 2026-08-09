@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-from utils.other_utils import _handle_error
+from utils.OtherUtils import _handle_error
 
 class WCE: # Wrap Candle Engine
     def __init__(self, df: pd.DataFrame, period: int):

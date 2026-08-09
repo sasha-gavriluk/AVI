@@ -3,8 +3,8 @@ import numpy as np
 import json
 
 from collections import defaultdict, Counter
-from utils.other_utils import _handle_error
-from utils.config import ensure_predictions_dir_exists
+from utils.OtherUtils import _handle_error
+from utils.Config import ensure_predictions_dir_exists
 
 #==================================
 # NGramPredictor

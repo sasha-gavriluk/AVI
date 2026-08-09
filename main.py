@@ -2,8 +2,8 @@ import sys
 import os
 
 from PyQt6.QtWidgets import QApplication
-from gui.engine import engine
-from gui.logic.main_logic import AppLogic
+from gui.engine import Engine as engine
+from gui.logic.MainLogic import AppLogic
 
 # Додаємо корінь проекту в PYTHONPATH, щоб імпорти працювали
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))

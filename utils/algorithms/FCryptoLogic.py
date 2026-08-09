@@ -2,7 +2,7 @@ import pandas as pd
 from models.FFB.FFB import FFB
 from models.FRS.FRS import FRS
 from models.FMR.FMR import FMR
-from .brain.decision_engine import DecisionEngine
+from .brain.DecisionEngine import DecisionEngine
 
 #------------------------------
 # Точка входу крипто-логіки

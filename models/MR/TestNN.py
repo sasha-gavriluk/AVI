@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from ArchitectureNN import ArchitectureNN
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from unified_dataset import UnifiedDatasetFactory, ChunkedUnifiedDataset
+from UnifiedDataset import UnifiedDatasetFactory, ChunkedUnifiedDataset
 
 def label_mr_dataset(df: pd.DataFrame) -> pd.DataFrame:
     df.ta.adx(length=14, append=True)

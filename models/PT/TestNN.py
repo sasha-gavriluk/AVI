@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from ArchitectureNN import ArchitectureNN
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from unified_dataset import UnifiedDatasetFactory, ChunkedUnifiedDataset
+from UnifiedDataset import UnifiedDatasetFactory, ChunkedUnifiedDataset
 
 TARGET_COLS = [
     'target_Hammer', 'target_Inverted_Hammer', 'target_Shooting_Star', 

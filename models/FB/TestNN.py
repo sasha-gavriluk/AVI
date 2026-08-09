@@ -18,7 +18,7 @@ from ArchitectureNN import ArchitectureNN
 
 # Add AI_Lab to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from unified_dataset import UnifiedDatasetFactory, ChunkedUnifiedDataset
+from UnifiedDataset import UnifiedDatasetFactory, ChunkedUnifiedDataset
 
 def label_fb_dataset(df: pd.DataFrame, order=5) -> pd.DataFrame:
     prices_high = df['high'].values
