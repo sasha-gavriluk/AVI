@@ -1,0 +1,175 @@
+/* 
+   Premium Dark Theme QSS for AVI 
+   Based on modern design principles: Deep dark backgrounds, subtle neon accents, smooth borders.
+*/
+
+QWidget {
+    background-color: #0d1117;
+    color: #c9d1d9;
+    font-family: "Inter", "Segoe UI", "Roboto", sans-serif;
+    font-size: 14px;
+}
+
+/* Panels */
+#settings_panel {
+    background-color: #161b22;
+    border-radius: 12px;
+    border: 1px solid #30363d;
+    margin: 20px;
+}
+
+/* Titles and Labels */
+QLabel {
+    color: #8b949e;
+    font-weight: 500;
+}
+QLabel#title_label {
+    color: #58a6ff;
+    font-size: 18px;
+    font-weight: bold;
+    padding-bottom: 10px;
+}
+QLabel#status_label {
+    color: #3fb950;
+    font-size: 13px;
+    font-style: italic;
+    margin-top: 10px;
+}
+
+/* Inputs (QLineEdit & QComboBox) */
+QLineEdit, QComboBox {
+    background-color: #0d1117;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 8px 12px;
+    selection-background-color: #58a6ff;
+    selection-color: #ffffff;
+}
+QLineEdit:focus, QComboBox:focus {
+    border: 1px solid #58a6ff;
+    background-color: #161b22;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 25px;
+    border-left: 1px solid #30363d;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+}
+QComboBox QAbstractItemView {
+    background-color: #161b22;
+    border: 1px solid #30363d;
+    selection-background-color: #388bfd;
+    outline: none;
+    border-radius: 4px;
+}
+
+/* Primary Button */
+QPushButton {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 #238636, stop: 1 #2ea043);
+    color: #ffffff;
+    border: 1px solid rgba(240, 246, 252, 0.1);
+    border-radius: 6px;
+    padding: 10px 20px;
+    font-weight: bold;
+    font-size: 15px;
+}
+QPushButton:hover {
+    background-color: #2ea043;
+    border: 1px solid #3fb950;
+}
+QPushButton:pressed {
+    background-color: #238636;
+}
+
+/* Segmented Buttons (QRadioButton as toggles) */
+QRadioButton {
+    background-color: #0d1117;
+    color: #8b949e;
+    border: 1px solid #30363d;
+    padding: 6px 16px;
+    border-radius: 6px;
+    margin-right: 4px;
+}
+QRadioButton::indicator {
+    width: 0px;
+    height: 0px;
+}
+QRadioButton:checked {
+    background-color: rgba(88, 166, 255, 0.1);
+    color: #58a6ff;
+    border: 1px solid #58a6ff;
+    font-weight: bold;
+}
+QRadioButton:hover:!checked:!disabled {
+    border: 1px solid #8b949e;
+    color: #c9d1d9;
+}
+QRadioButton:disabled {
+    background-color: #0d1117;
+    color: #484f58;
+    border: 1px solid #21262d;
+}
+
+/* Checkboxes for Assets Dialog */
+QCheckBox {
+    color: #c9d1d9;
+    spacing: 10px;
+    font-size: 14px;
+}
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    background-color: #0d1117;
+}
+QCheckBox::indicator:checked {
+    background-color: #2ea043;
+    border: 1px solid #3fb950;
+    image: none;
+}
+QCheckBox:hover {
+    color: #58a6ff;
+}
+
+/* Tabs Styling */
+QTabWidget::pane {
+    border: none;
+    background: transparent;
+}
+QTabBar::tab {
+    background-color: #0d1117;
+    color: #8b949e;
+    padding: 10px 20px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    font-weight: bold;
+    margin-right: 2px;
+}
+QTabBar::tab:selected {
+    background-color: #161b22;
+    color: #58a6ff;
+    border-bottom: 2px solid #58a6ff;
+}
+QTabBar::tab:hover:!selected {
+    color: #c9d1d9;
+    background-color: #1c2128;
+}
+QTabBar::tab:disabled {
+    color: #484f58;
+}
+
+/* Signals Log */
+QTextEdit#signals_log {
+    background-color: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 10px;
+    color: #c9d1d9;
+    font-family: monospace;
+    font-size: 13px;
+}

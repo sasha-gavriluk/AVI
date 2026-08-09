@@ -29,12 +29,14 @@ class DataFetcherWorker(QThread):
     finished_ok = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, logic_instance, assets_list, market_type, timeframe):
+    def __init__(self, logic_instance, assets_list, market_type, timeframes):
         super().__init__()
         self.logic = logic_instance
         self.assets = assets_list
         self.market = market_type
-        self.timeframe = timeframe
+        # Список таймфреймів: робочий + старші для HTF-контексту (1h/4h/1d).
+        # Без старших ТФ система не бачить, чи локальний рух — це тренд, чи відскок.
+        self.timeframes = list(timeframes) if isinstance(timeframes, (list, tuple)) else [timeframes]
 
     def run(self):
         try:
@@ -43,36 +45,57 @@ class DataFetcherWorker(QThread):
                 import utils.config as app_config
                 if app_config.bybit_key and app_config.bybit_secret_key:
                     self.logic.ccxt.connect(app_config.bybit_key, app_config.bybit_secret_key)
-                    
+
             self.progress.emit("Ініціалізація GapAnalyzer...")
             gap_analyzer = GapAnalyzer()
-            multiplier, tf_str = parse_timeframe(self.timeframe)
-            tf_ms = multiplier * (60000 if tf_str == 'minute' else 3600000 if tf_str == 'hour' else 86400000)
-            
+
             # Зчитуємо доступні таблиці раз
             try:
                 tables_df = self.logic.db.conn.execute("SHOW TABLES;").df()
                 available_tables = tables_df['name'].tolist()
             except Exception:
                 available_tables = []
-            
-            for i, asset in enumerate(self.assets):
+
+            for tf_i, timeframe in enumerate(self.timeframes):
                 if not self.logic.is_running:
                     self.progress.emit("Процес перервано користувачем.")
                     return
-                    
-                self.progress.emit(f"[{i+1}/{len(self.assets)}] {asset} - Перевірка прогалин...")
-                
+                self.progress.emit(f"=== Таймфрейм {timeframe} ({tf_i+1}/{len(self.timeframes)}) ===")
+                self._sync_timeframe(timeframe, gap_analyzer, available_tables)
+                if not self.logic.is_running:
+                    return
+
+            self.progress.emit("Всі дані успішно синхронізовано!")
+            self.finished_ok.emit()
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"[DataFetcher] CRASH: {e}")
+            self.error.emit(str(e))
+
+    def _sync_timeframe(self, timeframe, gap_analyzer, available_tables):
+        "Синхронізує всі активи для ОДНОГО таймфрейму"
+        multiplier, tf_str = parse_timeframe(timeframe)
+        tf_ms = multiplier * (60000 if tf_str == 'minute' else 3600000 if tf_str == 'hour' else 86400000)
+
+        for i, asset in enumerate(self.assets):
+                if not self.logic.is_running:
+                    self.progress.emit("Процес перервано користувачем.")
+                    return
+
+                self.progress.emit(f"[{timeframe}] [{i+1}/{len(self.assets)}] {asset} - Перевірка прогалин...")
+
                 base_name = asset.replace(':', '').replace('/', '_')
-                table_name = f"{base_name}_{self.timeframe}"
-                alt_name_1 = f"{base_name.replace('_', '')}_{self.timeframe}"
-                
+                table_name = f"{base_name}_{timeframe}"
+                alt_name_1 = f"{base_name.replace('_', '')}_{timeframe}"
+
                 # Знаходимо правильну таблицю, якщо є розбіжності (наприклад BTC_USDT vs BTCUSDT)
                 if table_name not in available_tables:
                     if alt_name_1 in available_tables:
                         table_name = alt_name_1
-                    elif f"{base_name[:3]}_{base_name[3:]}_{self.timeframe}" in available_tables: # BTCUSDT -> BTC_USDT
-                        table_name = f"{base_name[:3]}_{base_name[3:]}_{self.timeframe}"
+                    elif f"{base_name[:3]}_{base_name[3:]}_{timeframe}" in available_tables: # BTCUSDT -> BTC_USDT
+                        table_name = f"{base_name[:3]}_{base_name[3:]}_{timeframe}"
                 
                 # 1 year logic
                 one_year_ms = 365 * 24 * 60 * 60 * 1000
@@ -138,7 +161,7 @@ class DataFetcherWorker(QThread):
                             self.progress.emit(f"[{i+1}/{len(self.assets)}] {asset} - Крипто завантаження {start_dt} -> {end_dt} [{pct}%]")
                             
                             print(f"[DataFetcher] Запит API для {asset} (since={current_since})...")
-                            result = self.logic.ccxt.fetch_ohlcv(asset, self.timeframe, since=current_since, limit=1000)
+                            result = self.logic.ccxt.fetch_ohlcv(asset, timeframe, since=current_since, limit=1000)
                             print(f"[DataFetcher] Відповідь API отримана.")
                             
                             if result is None or not isinstance(result, tuple):
@@ -163,15 +186,6 @@ class DataFetcherWorker(QThread):
                                     current_since = last_ts + 1
                                     
                             time.sleep(self.logic.ccxt.exchange.rateLimit / 1000.0)
-
-            self.progress.emit("Всі дані успішно синхронізовано!")
-            self.finished_ok.emit()
-            
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            print(f"[DataFetcher] CRASH: {e}")
-            self.error.emit(str(e))
 
 class SignalsWorker(QThread):
     result_ready = pyqtSignal(str, dict)
@@ -246,6 +260,10 @@ class AppLogic:
         self.worker = None
         self.signals_worker = None
         self.signal_cards = {}
+
+        # Старші таймфрейми для HTF-контексту. Качаються завжди разом із робочим,
+        # інакше система не бачить, чи локальний рух — тренд, чи відскок у ведмежому ринку.
+        self.context_timeframes = ['1h', '4h', '1d']
         
         self.crypto_assets = [
             "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", 
@@ -477,8 +495,11 @@ class AppLogic:
             except Exception as e:
                 print(f"Massive Error: {e}")
 
+        # Робочий ТФ + старші для HTF-контексту (без дублів, робочий іде першим)
+        timeframes = [timeframe] + [tf for tf in self.context_timeframes if tf != timeframe]
+
         # Запуск фонового потоку перевірки прогалин
-        self.worker = DataFetcherWorker(self, assets_list, market_type, timeframe)
+        self.worker = DataFetcherWorker(self, assets_list, market_type, timeframes)
         self.worker.progress.connect(self._on_worker_progress)
         self.worker.finished_ok.connect(self._on_worker_finished)
         self.worker.error.connect(self._on_worker_error)
