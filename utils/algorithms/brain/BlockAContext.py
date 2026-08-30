@@ -1,4 +1,5 @@
 import pandas as pd
+from utils.OtherUtils import _handle_error
 
 #------------------------------
 # Визначення макро-режиму ринку
@@ -11,6 +12,7 @@ class MarketRegimeDetector:
     # Збір оцінок радників
     #------------------------------
 
+    @_handle_error
     def get_votes(self, row: pd.Series) -> dict:
         "Збирає оцінки за кожен режим. Моделі вже відпрацювали — читаємо їхні колонки"
         # 1. Основний голос: FMR (нейромережа режиму) — незалежні ймовірності [0.0 - 1.0]
@@ -49,6 +51,7 @@ class ConsensusEvaluator:
     # Рішення за оцінками
     #------------------------------
 
+    @_handle_error
     def evaluate(self, probs: dict) -> dict:
         "Обирає режим і дію, зберігаючи неперервну впевненість (частка переможця)"
         total = sum(probs.values())
@@ -78,6 +81,7 @@ class HTFAligner:
     # Перевірка вирівнювання
     #------------------------------
 
+    @_handle_error
     def check_alignment(self, current_state: str, current_dir: str) -> str:
         "Повертає статус узгодженості. Заглушка — потребує мульти-ТФ даних"
         return 'ALIGNED'

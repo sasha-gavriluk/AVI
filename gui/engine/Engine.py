@@ -1,11 +1,12 @@
 import os
+from utils.OtherUtils import _handle_error
 import json
 
 from PyQt6 import QtWidgets
 
-#-----------------------------------
+#------------------------------
 # Глобальні реєстри движка
-#-----------------------------------
+#------------------------------
 
 _ELEMENTS = {}   # id -> QWidget (побудовані елементи, доступ через get)
 _HANDLERS = {}   # ім'я -> callable (обробники подій, вказані в JSON)
@@ -27,13 +28,15 @@ _LAYOUTS = {
 }
 
 
-#-----------------------------------
+#------------------------------
 # Декоратор обробки помилок побудови (у стилі utils.other_utils._handle_error):
 # одна зламана нода не валить усе вікно — друкуємо id/type і йдемо далі
-#-----------------------------------
+#------------------------------
 
+@_handle_error
 def _safe_build(func):
 
+    @_handle_error
     def wrapper(node, *args, **kwargs):
         try:
             return func(node, *args, **kwargs)
@@ -45,12 +48,14 @@ def _safe_build(func):
     return wrapper
 
 
-#-----------------------------------
+#------------------------------
 # Реєстрація власного білдера типу (для нестандартних віджетів)
-#-----------------------------------
+#------------------------------
 
+@_handle_error
 def element(type_name):
 
+    @_handle_error
     def deco(func):
         _BUILDERS[type_name] = func
         return func
@@ -58,12 +63,14 @@ def element(type_name):
     return deco
 
 
-#-----------------------------------
+#------------------------------
 # Реєстрація обробника події (для прив'язки, вказаної в JSON)
-#-----------------------------------
+#------------------------------
 
+@_handle_error
 def handler(name):
 
+    @_handle_error
     def deco(func):
         _HANDLERS[name] = func
         return func
@@ -71,20 +78,22 @@ def handler(name):
     return deco
 
 
-#-----------------------------------
+#------------------------------
 # Прив'язка обробника з коду (напр. метод містка): engine.bind("explorer.refresh", self.refresh)
-#-----------------------------------
+#------------------------------
 
+@_handle_error
 def bind(name, func):
 
     _HANDLERS[name] = func
 
 
-#-----------------------------------
+#------------------------------
 # Визначення/створення віджета за типом.
 # Спочатку власні білдери, потім будь-який клас із PyQt6.QtWidgets за іменем.
-#-----------------------------------
+#------------------------------
 
+@_handle_error
 def _resolve_widget(type_name):
 
     if type_name in _BUILDERS:
@@ -97,11 +106,12 @@ def _resolve_widget(type_name):
     return cls()
 
 
-#-----------------------------------
+#------------------------------
 # Застосування довільного параметра вузла.
 # on_<signal> -> connect до обробника; інакше foo_bar -> widget.setFooBar(value)
-#-----------------------------------
+#------------------------------
 
+@_handle_error
 def _apply_param(widget, key, value):
 
     if key.startswith("on_"):
@@ -117,10 +127,11 @@ def _apply_param(widget, key, value):
         method(value)
 
 
-#-----------------------------------
+#------------------------------
 # Перетворення опису стилю (з styles.json) у QSS-рядок
-#-----------------------------------
+#------------------------------
 
+@_handle_error
 def _style_to_qss(spec):
 
     props = []
@@ -134,6 +145,7 @@ def _style_to_qss(spec):
     return "; ".join(props)
 
 
+@_handle_error
 def _apply_style(widget, style_name):
 
     spec = _STYLES.get(style_name)
@@ -141,10 +153,11 @@ def _apply_style(widget, style_name):
         widget.setStyleSheet(_style_to_qss(spec))
 
 
-#-----------------------------------
+#------------------------------
 # Читання JSON-файлу опису (відносно базової теки, розширення .json необов'язкове)
-#-----------------------------------
+#------------------------------
 
+@_handle_error
 def _load(name):
 
     path = os.path.join(_BASE_DIR, name)
@@ -155,11 +168,12 @@ def _load(name):
         return json.load(f)
 
 
-#-----------------------------------
+#------------------------------
 # Побудова одного вузла опису (рекурсивно з дітьми)
-#-----------------------------------
+#------------------------------
 
 @_safe_build
+@_handle_error
 def _build_node(node):
 
     # підключення іншого файлу опису як піддерева
@@ -201,10 +215,11 @@ def _build_node(node):
     return widget
 
 
-#-----------------------------------
+#------------------------------
 # Публічне API
-#-----------------------------------
+#------------------------------
 
+@_handle_error
 def load_styles(path):
 
     global _STYLES
@@ -212,8 +227,9 @@ def load_styles(path):
         _STYLES = json.load(f)
 
 
+@_handle_error
 def build(root_path, styles_path=None):
-    """Побудувати дерево віджетів з кореневого файлу опису. Повертає кореневий QWidget."""
+    "Побудувати дерево віджетів з кореневого файлу опису. Повертає кореневий QWidget."
 
     global _BASE_DIR
     _BASE_DIR = os.path.dirname(os.path.abspath(root_path))
@@ -227,13 +243,15 @@ def build(root_path, styles_path=None):
     return _build_node(root_node)
 
 
+@_handle_error
 def get(element_id):
-    """Повернути сирий Qt-віджет за його id (для прив'язки подій, додавання дітей тощо)."""
+    "Повернути сирий Qt-віджет за його id (для прив'язки подій, додавання дітей тощо)."
 
     return _ELEMENTS.get(element_id)
 
 
+@_handle_error
 def reset():
-    """Очистити реєстр елементів (напр. перед повною перебудовою UI)."""
+    "Очистити реєстр елементів (напр. перед повною перебудовою UI)."
 
     _ELEMENTS.clear()

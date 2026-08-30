@@ -1,5 +1,6 @@
 import pandas as pd
 from utils.FinancialAdvisor import FinancialAdvisor
+from utils.OtherUtils import _handle_error
 
 #------------------------------
 # Управління відкритою позицією
@@ -19,6 +20,7 @@ class PositionManager:
     # Перевірка тези входу
     #------------------------------
 
+    @_handle_error
     def monitor_thesis(self, active_trade: dict, current_candle: pd.Series) -> str:
         "Перевіряє, чи не скасувалась причина входу ще до спрацювання стопа"
         close_price = current_candle.get('close', 0.0)   # колонка саме 'close' (з малої)
@@ -56,6 +58,7 @@ class PositionManager:
     # Перевід стопа в беззбиток
     #------------------------------
 
+    @_handle_error
     def check_breakeven(self, active_trade: dict, current_price: float) -> str:
         "Каже, чи час пересунути стоп у беззбиток (коли прибуток досяг 1R)"
         entry = active_trade.get('entry_price')
@@ -90,6 +93,7 @@ class PositionManager:
     # Реакція на зміну режиму
     #------------------------------
 
+    @_handle_error
     def monitor_regime(self, active_trade: dict, current_regime: str) -> None:
         "Підлаштовує режим управління позицією, коли макро-режим змінився"
         original_regime = active_trade.get('entry_regime')

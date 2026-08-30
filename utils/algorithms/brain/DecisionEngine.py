@@ -5,6 +5,7 @@ from .BlockBState import TrendPhaseDetector, FlatPhaseDetector, RiskMap
 from .BlockCEntry import EntryTriggerValidator, RewardRiskCalculator, InvalidationRules
 from .BlockDRisk import AccountGuard, CorrelationGuard, EventGuard, PositionSizer
 from .BlockEManagement import PositionManager
+from utils.OtherUtils import _handle_error
 
 #------------------------------
 # Головний контролер рішень
@@ -55,6 +56,7 @@ class DecisionEngine:
     # Прогін датафрейму (бектест)
     #------------------------------
 
+    @_handle_error
     def process_dataframe(self, df: pd.DataFrame, account_state: dict = None) -> dict:
         "Проганяє весь датафрейм через конвеєр і повертає результати по кожному рядку"
         if account_state is None:
@@ -159,6 +161,7 @@ class DecisionEngine:
     # Управління відкритою позицією (Блок E)
     #------------------------------
 
+    @_handle_error
     def manage_position(self, active_trade: dict, row: pd.Series, current_regime: str) -> str:
         "Викликається на кожній свічці, поки позиція відкрита. Повертає команду управління"
         self.position_manager.monitor_regime(active_trade, current_regime)

@@ -1,4 +1,5 @@
 import os
+from utils.OtherUtils import _handle_error
 import requests
 from dotenv import load_dotenv
 
@@ -8,6 +9,7 @@ class TelegramNotifier:
         self.base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
         self.env_path = os.path.join(self.base_dir, '.env')
         
+    @_handle_error
     def send_message(self, message: str, silent: bool = False) -> bool:
         load_dotenv(self.env_path, override=True)
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")

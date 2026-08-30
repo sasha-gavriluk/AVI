@@ -1,40 +1,40 @@
 import numpy as np
 import pandas as pd
 from utils.algorithms.WrapCandleEngine import WCE
+from utils.OtherUtils import _handle_error
 
 class PatternDetector:
-    """Клас для виявлення свічкових патернів"""
-    # ----------------------------------
-    # Ініціалізація
-    # ----------------------------------
+    "Клас для виявлення класичних свічкових патернів"
+
+    #------------------------------
+    # Ініціалізація класу
+    #------------------------------
 
     def __init__(self, data: pd.DataFrame, processed_data: pd.DataFrame , pattern_params=None):
-        """Ініціалізація"""
         self.data = data
         self.processed_data = processed_data
         self.pattern_params = pattern_params if pattern_params is not None else []
 
-    # Окремі методи для свічкових патернів
-    # ----------------------------------
-    # Виявлення hammer
-    # ----------------------------------
+    #------------------------------
+    # Виявлення Hammer
+    #------------------------------
 
+    @_handle_error
     def detect_hammer(self):
-        """Виявлення hammer"""
+        "Виявляє патерн Hammer (Молот)"
         body = np.abs(self.data['close'] - self.data['open'])
         shadow_lower = self.data['low'] - np.minimum(self.data['close'], self.data['open'])
         shadow_upper = self.data['high'] - np.maximum(self.data['close'], self.data['open'])
         condition = (shadow_lower >= 2 * body) & (shadow_upper <= body)
         self.processed_data['Hammer'] = condition.astype(int)
 
-    # ----------------------------------
-    # Виявлення inverted hammer
-    # ----------------------------------
+    #------------------------------
+    # Виявлення Inverted Hammer
+    #------------------------------
 
+    @_handle_error
     def detect_inverted_hammer(self):
-        """
-        Виявляє патерн Inverted Hammer.
-        """
+        "Виявляє патерн Inverted Hammer (Перевернутий молот)"
         open_ = self.data['open']
         high = self.data['high']
         low = self.data['low']
@@ -45,32 +45,33 @@ class PatternDetector:
         lower_shadow = np.minimum(close, open_) - low
 
         condition = (
-            (upper_shadow > 2 * body) &           # Довга верхня тінь
-            (lower_shadow < body * 0.5) &         # Коротка або відсутня нижня тінь
-            (close < open_)                       # Ведмежа свічка
+            (upper_shadow > 2 * body) &           
+            (lower_shadow < body * 0.5) &         
+            (close < open_)                       
         )
 
         self.processed_data['Inverted_Hammer'] = condition.astype(bool)
-        # print(f"Патерн 'Inverted Hammer' виявлено: {condition.sum()} разів")
 
-    # ----------------------------------
-    # Виявлення shooting star
-    # ----------------------------------
+    #------------------------------
+    # Виявлення Shooting Star
+    #------------------------------
 
+    @_handle_error
     def detect_shooting_star(self):
-        """Виявлення shooting star"""
+        "Виявляє патерн Shooting Star (Зірка, що падає)"
         body = np.abs(self.data['close'] - self.data['open'])
         shadow_upper = self.data['high'] - np.maximum(self.data['close'], self.data['open'])
         shadow_lower = np.minimum(self.data['close'], self.data['open']) - self.data['low']
         condition = (shadow_upper >= 2 * body) & (shadow_lower <= body)
         self.processed_data['Shooting_Star'] = condition.astype(int)
 
-    # ----------------------------------
-    # Виявлення engulfing
-    # ----------------------------------
+    #------------------------------
+    # Виявлення Engulfing
+    #------------------------------
 
+    @_handle_error
     def detect_engulfing(self):
-        """Виявлення engulfing"""
+        "Виявляє патерн Engulfing (Поглинання)"
         prev_close = self.data['close'].shift(1)
         prev_open = self.data['open'].shift(1)
         current_close = self.data['close']
@@ -83,12 +84,13 @@ class PatternDetector:
 
         self.processed_data['Engulfing'] = np.where(bullish, 1, np.where(bearish, -1, 0))
 
-    # ----------------------------------
-    # Виявлення morning star
-    # ----------------------------------
+    #------------------------------
+    # Виявлення Morning Star
+    #------------------------------
 
+    @_handle_error
     def detect_morning_star(self):
-        """Виявлення morning star"""
+        "Виявляє патерн Morning Star (Ранкова зірка)"
         prev2_close = self.data['close'].shift(2)
         prev2_open = self.data['open'].shift(2)
         prev1_close = self.data['close'].shift(1)
@@ -103,12 +105,13 @@ class PatternDetector:
 
         self.processed_data['Morning_Star'] = condition.astype(int)
 
-    # ----------------------------------
-    # Виявлення evening star
-    # ----------------------------------
+    #------------------------------
+    # Виявлення Evening Star
+    #------------------------------
 
+    @_handle_error
     def detect_evening_star(self):
-        """Виявлення evening star"""
+        "Виявляє патерн Evening Star (Вечірня зірка)"
         prev2_close = self.data['close'].shift(2)
         prev2_open = self.data['open'].shift(2)
         prev1_close = self.data['close'].shift(1)
@@ -123,12 +126,13 @@ class PatternDetector:
 
         self.processed_data['Evening_Star'] = condition.astype(int)
 
-    # ----------------------------------
-    # Виявлення piercing pattern
-    # ----------------------------------
+    #------------------------------
+    # Виявлення Piercing Pattern
+    #------------------------------
 
+    @_handle_error
     def detect_piercing_pattern(self):
-        """Виявлення piercing pattern"""
+        "Виявляє Piercing Pattern (Просвіт у хмарах)"
         prev_close = self.data['close'].shift(1)
         prev_open = self.data['open'].shift(1)
         current_close = self.data['close']
@@ -141,12 +145,13 @@ class PatternDetector:
 
         self.processed_data['Piercing_Pattern'] = condition.astype(int)
 
-    # ----------------------------------
-    # Виявлення dark cloud cover
-    # ----------------------------------
+    #------------------------------
+    # Виявлення Dark Cloud Cover
+    #------------------------------
 
+    @_handle_error
     def detect_dark_cloud_cover(self):
-        """Виявлення dark cloud cover"""
+        "Виявляє Dark Cloud Cover (Завіса з темних хмар)"
         prev_close = self.data['close'].shift(1)
         prev_open = self.data['open'].shift(1)
         current_close = self.data['close']
@@ -159,12 +164,13 @@ class PatternDetector:
 
         self.processed_data['Dark_Cloud_Cover'] = condition.astype(int)
 
-    # ----------------------------------
-    # Виявлення three white soldiers
-    # ----------------------------------
+    #------------------------------
+    # Виявлення Three White Soldiers
+    #------------------------------
 
+    @_handle_error
     def detect_three_white_soldiers(self):
-        """Виявлення three white soldiers"""
+        "Виявляє Three White Soldiers (Три білі солдати)"
         close = self.data['close']
         open_ = self.data['open']
 
@@ -175,14 +181,14 @@ class PatternDetector:
                      (close.shift(1) > close.shift(2)))
 
         self.processed_data['Three_White_Soldiers'] = condition.astype(int)
-        # print(f"Патерн 'Three_White_Soldiers' виявлено: {condition.sum()} разів")
 
-    # ----------------------------------
-    # Виявлення three black crows
-    # ----------------------------------
+    #------------------------------
+    # Виявлення Three Black Crows
+    #------------------------------
 
+    @_handle_error
     def detect_three_black_crows(self):
-        """Виявлення three black crows"""
+        "Виявляє Three Black Crows (Три чорні ворони)"
         close = self.data['close']
         open_ = self.data['open']
 
@@ -193,14 +199,14 @@ class PatternDetector:
                      (close.shift(1) < close.shift(2)))
 
         self.processed_data['Three_Black_Crows'] = condition.astype(int)
-        # print(f"Патерн 'Three_Black_Crows' виявлено: {condition.sum()} разів")
 
-    # ----------------------------------
-    # Виявлення hanging man
-    # ----------------------------------
+    #------------------------------
+    # Виявлення Hanging Man
+    #------------------------------
 
+    @_handle_error
     def detect_hanging_man(self):
-        """Виявлення hanging man"""
+        "Виявляє Hanging Man (Шибеник)"
         body = np.abs(self.data['close'] - self.data['open'])
         shadow_lower = self.data['low'] - np.minimum(self.data['close'], self.data['open'])
         shadow_upper = self.data['high'] - np.maximum(self.data['close'], self.data['open'])
@@ -209,12 +215,13 @@ class PatternDetector:
 
         self.processed_data['Hanging_Man'] = condition.astype(int)
 
-    # ----------------------------------
-    # Головний метод обробки даних
-    # ----------------------------------
+    #------------------------------
+    # Оркестратор
+    #------------------------------
 
+    @_handle_error
     def process_data(self):
-        """Головний метод обробки даних"""
+        "Головний оркестратор для виклику методів патернів"
         pattern_methods = {
             'Hammer': self.detect_hammer,
             'Inverted_Hammer': self.detect_inverted_hammer,
@@ -241,7 +248,3 @@ class PatternDetector:
                 method()
 
         return self.processed_data
-
-# ==================================
-# Клас для алгоритмічної обробки та розрахунку рівнів
-# ==================================

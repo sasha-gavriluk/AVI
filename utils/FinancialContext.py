@@ -36,8 +36,8 @@ class FinancialContext:
         self,
         signal_data: Dict,
         current_price: float,
-        atr_value: float = None,
-        signal_duration: float = None
+        atr_value: float | None = None,
+        signal_duration: float | None = None
     ) -> Dict:
         direction = signal_data.get('direction') or signal_data.get('signal') # підтримуємо обидва формати ключів ядра
         if not direction or direction in ['neutral', 'None', None]:
@@ -134,7 +134,7 @@ class FinancialContext:
         if atr_value and "take_profit_price" in sl_tp_info:
             duration_info = self.advisor.estimate_signal_duration(
                 entry_price=current_price,
-                target_price=sl_tp_info["take_profit_price"],
+                target_price=float(sl_tp_info["take_profit_price"]),
                 atr_value=atr_value
             )
             if "estimated_periods" in duration_info:

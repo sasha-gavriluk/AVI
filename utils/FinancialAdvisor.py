@@ -1,4 +1,5 @@
 import numpy as np
+from utils.OtherUtils import _handle_error
 import math
 from typing import List, Dict, Union, Tuple
 
@@ -16,8 +17,11 @@ class FinancialAdvisor:
         # У майбутньому тут можна буде зберігати стан, наприклад, історію операцій.
         pass
 
-    # --- РОЗДІЛ 1: УПРАВЛІННЯ РИЗИКАМИ В УГОДІ ---
+    #------------------------------
+    # РОЗДІЛ 1: УПРАВЛІННЯ РИЗИКАМИ В УГОДІ
+    #------------------------------
 
+    @_handle_error
     def calculate_position_size(
         self,
         capital: float,
@@ -25,9 +29,7 @@ class FinancialAdvisor:
         entry_price: float,
         stop_loss_price: float
     ) -> Dict[str, Union[float, str]]:
-        """
-        Розраховує оптимальний розмір позиції для СПОТОВОЇ торгівлі.
-        """
+        "Розраховує оптимальний розмір позиції для СПОТОВОЇ торгівлі."
         if risk_per_trade_pct <= 0 or risk_per_trade_pct > 100:
             return {"error": "Відсоток ризику має бути в діапазоні (0, 100]."}
         if entry_price <= 0 or stop_loss_price <= 0 or capital <= 0:
@@ -50,6 +52,7 @@ class FinancialAdvisor:
             "risk_per_trade_usd": round(risk_amount, 2),
         }
 
+    @_handle_error
     def calculate_sl_tp_levels(
         self,
         entry_price: float,
@@ -62,12 +65,7 @@ class FinancialAdvisor:
         support_price: float = None,
         resistance_price: float = None
     ) -> Dict[str, Union[float, str]]:
-        """
-        Розраховує рівні Stop Loss та Take Profit.
-        :param signal_duration: Очікувана тривалість сигналу у кількості періодів.
-        :param support_price: Ціна найближчого рівня підтримки.
-        :param resistance_price: Ціна найближчого рівня опору.
-        """
+        "Розраховує рівні Stop Loss та Take Profit."
         if direction not in ['buy', 'sell']:
             return {"error": "Напрямок має бути 'buy' або 'sell'."}
 
@@ -126,16 +124,14 @@ class FinancialAdvisor:
             "risk_reward_ratio": round(abs(entry_price - tp_price) / risk_per_unit, 2) if risk_per_unit > 0 else risk_reward_ratio
         }
     
+    @_handle_error
     def estimate_signal_duration(
         self,
         entry_price: float,
         target_price: float,
         atr_value: float
     ) -> Dict[str, Union[float, str]]:
-        """
-        Оцінює кількість періодів, необхідних для досягнення цільової ціни
-        на основі ATR.
-        """
+        "Оцінює кількість періодів, необхідних для досягнення цільової ціни"
         if atr_value is None or atr_value <= 0:
             return {"error": "atr_value має бути додатним."}
         distance = abs(target_price - entry_price)
@@ -144,8 +140,11 @@ class FinancialAdvisor:
         periods = distance / atr_value
         return {"estimated_periods": round(periods, 2)}
 
-    # --- РОЗДІЛ 2: ПЛАНУВАННЯ КАПІТАЛУ ТА ЗРОСТАННЯ ---
+    #------------------------------
+    # РОЗДІЛ 2: ПЛАНУВАННЯ КАПІТАЛУ ТА ЗРОСТАННЯ
+    #------------------------------
 
+    @_handle_error
     def calculate_compound_growth(
         self,
         initial_capital: float,
@@ -153,15 +152,7 @@ class FinancialAdvisor:
         avg_return_per_period_pct: float,
         contribution_per_period: float = 0
     ) -> Dict[str, Union[float, List[float]]]:
-        """
-        Розраховує зростання капіталу за рахунок складного відсотка.
-
-        :param initial_capital: Початковий капітал.
-        :param periods: Кількість періодів (напр., місяців, років).
-        :param avg_return_per_period_pct: Середня дохідність за період у відсотках.
-        :param contribution_per_period: Сума, що додається до капіталу кожен період.
-        :return: Словник з кінцевим капіталом та історією зростання.
-        """
+        "Розраховує зростання капіталу за рахунок складного відсотка."
         if initial_capital < 0 or periods <= 0:
             return {"error": "Початковий капітал та кількість періодів мають бути додатними."}
 
@@ -183,18 +174,13 @@ class FinancialAdvisor:
             "growth_history": history
         }
 
+    @_handle_error
     def plan_portfolio_diversification(
         self,
         risk_profile: str,
         available_asset_classes: List[str] = ['stocks', 'bonds', 'crypto', 'real_estate']
     ) -> Dict[str, Union[float, str]]:
-        """
-        Пропонує базовий план диверсифікації портфеля за профілем ризику.
-
-        :param risk_profile: Профіль ризику ('conservative', 'moderate', 'aggressive').
-        :param available_asset_classes: Список доступних класів активів.
-        :return: Словник з рекомендованим розподілом у відсотках.
-        """
+        "Пропонує базовий план диверсифікації портфеля за профілем ризику."
         allocations = {
             'conservative': {'stocks': 20, 'bonds': 60, 'crypto': 5, 'real_estate': 15},
             'moderate': {'stocks': 40, 'bonds': 40, 'crypto': 10, 'real_estate': 10},
@@ -219,6 +205,7 @@ class FinancialAdvisor:
             "recommended_allocation": filtered_plan
         }
     
+    @_handle_error
     def calculate_liquidation_price(
         self,
         entry_price: float,
@@ -226,15 +213,7 @@ class FinancialAdvisor:
         direction: str,
         margin_type: str = 'isolated'
     ) -> Dict[str, Union[float, str]]:
-        """
-        Розраховує приблизну ціну ліквідації для ф'ючерсної позиції.
-
-        :param entry_price: Ціна входу в позицію.
-        :param leverage: Кредитне плече (напр., 10 для 10x).
-        :param direction: Напрямок угоди ('buy' або 'sell').
-        :param margin_type: Тип маржі ('isolated' або 'cross'). Для cross розрахунок складніший.
-        :return: Словник з ціною ліквідації.
-        """
+        "Розраховує приблизну ціну ліквідації для ф'ючерсної позиції."
         if leverage <= 0:
             return {"error": "Кредитне плече має бути додатним."}
         if direction not in ['buy', 'sell']:
@@ -260,6 +239,7 @@ class FinancialAdvisor:
             "comment": "Це приблизна ціна. Реальна може відрізнятись залежно від біржі."
         }
 
+    @_handle_error
     def calculate_futures_position_size(
         self,
         capital: float,
@@ -268,16 +248,7 @@ class FinancialAdvisor:
         stop_loss_price: float,
         leverage: int
     ) -> Dict[str, Union[float, str]]:
-        """
-        Розраховує розмір ф'ючерсної позиції у USDT та в одиницях активу.
-
-        :param capital: Загальний капітал, доступний для торгівлі.
-        :param risk_per_trade_pct: Відсоток капіталу, яким ви готові ризикнути.
-        :param entry_price: Ціна входу.
-        :param stop_loss_price: Ціна стоп-лосу.
-        :param leverage: Кредитне плече.
-        :return: Словник з деталями позиції.
-        """
+        "Розраховує розмір ф'ючерсної позиції у USDT та в одиницях активу."
         if entry_price == stop_loss_price:
             return {"error": "Ціна входу не може дорівнювати ціні стоп-лосу."}
             
@@ -304,15 +275,14 @@ class FinancialAdvisor:
             "leverage": leverage
         }
 
+    @_handle_error
     def calculate_bo_stake(
         self,
         capital: float,
         risk_per_trade_pct: float,
         payout_rate_pct: float
     ) -> Dict[str, Union[float, str]]:
-        """
-        Розраховує параметри угоди для Бінарних Опціонів (BO).
-        """
+        "Розраховує параметри угоди для Бінарних Опціонів (BO)."
         if capital <= 0 or risk_per_trade_pct <= 0:
             return {"error": "Капітал та відсоток ризику мають бути додатними."}
             
@@ -334,15 +304,16 @@ class FinancialAdvisor:
             "payout_rate_pct": payout_rate_pct
         }
 
-    # --- РОЗДІЛ 3: АНАЛІЗ ЕФЕКТИВНОСТІ ---
+    #------------------------------
+    # РОЗДІЛ 3: АНАЛІЗ ЕФЕКТИВНОСТІ
+    #------------------------------
 
+    @_handle_error
     def analyze_trade_history(
         self,
         trade_history: List[Dict[str, float]]
     ) -> Dict[str, float]:
-        """
-        Аналізує історію угод та розраховує ключові метрики ефективності.
-        """
+        "Аналізує історію угод та розраховує ключові метрики ефективності."
         if not trade_history:
             return {"error": "Історія угод порожня."}
 
@@ -371,8 +342,11 @@ class FinancialAdvisor:
             "total_pnl_usd": round(sum(pnls), 2)
         }
     
-    # --- РОЗДІЛ 4: ПРОСУНУТИЙ РИСК-МЕНЕДЖМЕНТ ТА СТРАТЕГІЯ ---
+    #------------------------------
+    # РОЗДІЛ 4: ПРОСУНУТИЙ РИСК-МЕНЕДЖМЕНТ ТА СТРАТЕГІЯ
+    #------------------------------
 
+    @_handle_error
     def calculate_dynamic_risk_pct(
         self,
         win_rate_pct: float,
@@ -381,17 +355,7 @@ class FinancialAdvisor:
         base_risk_pct: float = 1.0,
         max_multiplier: float = 1.5
     ) -> Dict[str, Union[float, str]]:
-        """
-        Розраховує динамічний відсоток ризику за допомогою критерію Келлі,
-        строго адаптовано під математику Бінарних Опціонів (де R < 1).
-
-        :param win_rate_pct: Історичний відсоток прибуткових угод (0-100).
-        :param avg_win_to_loss_ratio: Виплата брокера БО (напр. 0.82) або R:R ф'ючерсів.
-        :param kelly_fraction: Частка Келлі (зазвичай 0.25 - 0.5).
-        :param base_risk_pct: Базовий розмір ставки (наприклад, 1.5%).
-        :param max_multiplier: Жорстка стеля (наприклад, 1.5х від базової ставки).
-        :return: Словник з рекомендованим відсотком ризику.
-        """
+        "Розраховує динамічний відсоток ризику за допомогою критерію Келлі,"
         if not (0 < win_rate_pct <= 100):
             return {"error": "Win Rate має бути в діапазоні (0, 100]."}
         if avg_win_to_loss_ratio <= 0:
@@ -424,6 +388,7 @@ class FinancialAdvisor:
             "comment": f"Динамічний ризик {round(recommended_risk, 2)}% (Стеля: {round(max_allowed_risk, 2)}%)."
         }
 
+    @_handle_error
     def calculate_breakeven_trigger_price(
         self,
         entry_price: float,
@@ -431,16 +396,7 @@ class FinancialAdvisor:
         direction: str,
         profit_factor_for_breakeven: float = 1.0
     ) -> Dict[str, Union[float, str]]:
-        """
-        Розраховує ціну, при досягненні якої варто перемістити стоп-лосс в беззбиток.
-
-        :param entry_price: Ціна входу.
-        :param stop_loss_price: Початкова ціна стоп-лосу.
-        :param direction: Напрямок угоди ('buy' або 'sell').
-        :param profit_factor_for_breakeven: Коефіцієнт, що показує, у скільки разів
-                                            поточний прибуток має перевищувати початковий ризик.
-        :return: Словник з ціною для переведення в беззбиток.
-        """
+        "Розраховує ціну, при досягненні якої варто перемістити стоп-лосс в беззбиток."
         initial_risk_per_unit = abs(entry_price - stop_loss_price)
         
         if direction == 'buy':
@@ -455,18 +411,13 @@ class FinancialAdvisor:
             "comment": f"При досягненні ціни {round(trigger_price, 4)} перемістіть SL на {entry_price}."
         }
 
+    @_handle_error
     def evaluate_portfolio_risk(
         self,
         total_capital: float,
         open_trades: List[Dict[str, float]]
     ) -> Dict[str, Union[float, str]]:
-        """
-        Оцінює сукупний ризик для всього портфеля з відкритими угодами.
-
-        :param total_capital: Загальний капітал портфеля.
-        :param open_trades: Список відкритих угод. Кожна угода - словник з ключем 'risk_per_trade_usd'.
-        :return: Словник з оцінкою загального ризику.
-        """
+        "Оцінює сукупний ризик для всього портфеля з відкритими угодами."
         if not open_trades:
             return {
                 "total_capital_at_risk_usd": 0.0,
@@ -490,8 +441,11 @@ class FinancialAdvisor:
             "number_of_open_trades": len(open_trades)
         }
 
-    # --- РОЗДІЛ 5: ФІНАНСОВЕ ПЛАНУВАННЯ ТА ЦІЛІ ---
+    #------------------------------
+    # РОЗДІЛ 5: ФІНАНСОВЕ ПЛАНУВАННЯ ТА ЦІЛІ
+    #------------------------------
 
+    @_handle_error
     def estimate_time_to_goal(
         self,
         initial_capital: float,
@@ -499,15 +453,7 @@ class FinancialAdvisor:
         avg_return_per_period_pct: float,
         contribution_per_period: float = 0
     ) -> Dict[str, Union[int, str]]:
-        """
-        Розраховує приблизну кількість періодів для досягнення фінансової цілі.
-
-        :param initial_capital: Початковий капітал.
-        :param target_capital: Цільова сума капіталу.
-        :param avg_return_per_period_pct: Середня дохідність за період у відсотках.
-        :param contribution_per_period: Сума, що додається до капіталу кожен період.
-        :return: Словник з кількістю періодів та коментарем.
-        """
+        "Розраховує приблизну кількість періодів для досягнення фінансової цілі."
         if target_capital <= initial_capital:
             return {"periods_to_goal": 0, "comment": "Ціль вже досягнута або нижча за початковий капітал."}
         if avg_return_per_period_pct <= 0 and contribution_per_period <= 0:
@@ -531,16 +477,12 @@ class FinancialAdvisor:
             "comment": f"Приблизно {periods} періодів для досягнення цілі."
         }
         
+    @_handle_error
     def calculate_required_win_rate(
         self,
         risk_reward_ratio: float
     ) -> Dict[str, float]:
-        """
-        Розраховує мінімальний відсоток прибуткових угод (Win Rate) для беззбитковості.
-
-        :param risk_reward_ratio: Співвідношення ризику до прибутку (R:R).
-        :return: Словник з необхідним Win Rate.
-        """
+        "Розраховує мінімальний відсоток прибуткових угод (Win Rate) для беззбитковості."
         if risk_reward_ratio <= 0:
             return {"error": "Співвідношення ризику до прибутку має бути додатним."}
             

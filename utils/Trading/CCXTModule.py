@@ -46,9 +46,11 @@ class CCXTModule:
         self.exchange.load_markets()
         print(f"[{self.exchange_name.upper()}] Підключено як {self.ccxt_id}.")
 
+    @_handle_error
     def is_connected(self) -> bool:
         return self.exchange.apiKey is not None
         
+    @_handle_error
     def disconnect(self):
         self.exchange.apiKey = None
         self.exchange.secret = None
@@ -58,10 +60,9 @@ class CCXTModule:
     # Утиліти
     # ----------------------------------
     
+    @_handle_error
     def _get_market_symbol(self, symbol: str, params={}):
-        """
-        Перетворює стандартний символ у біржовий, якщо потрібно (Bybit/linear -> ':USDT').
-        """
+        "Перетворює стандартний символ у біржовий, якщо потрібно (Bybit/linear -> ':USDT')."
         if self.exchange_name == 'bybit' and params.get('category', 'linear') == 'linear':
             if ':' not in symbol and 'USDT' in symbol and '/' in symbol:
                 return f"{symbol}:USDT"

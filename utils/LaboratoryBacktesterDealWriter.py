@@ -4,9 +4,9 @@ import uuid
 from utils.DataBaseManager import DataBaseManager
 from utils.OtherUtils import _handle_error
 
-#==================================
+#------------------------------
 # Лабораторний бэктестер
-#==================================
+#------------------------------
 
 class LaboratoryBacktesterDealWriter:
 
@@ -75,7 +75,7 @@ class LaboratoryBacktesterDealWriter:
 
     @_handle_error
     def _add_trade_entry(self, trade_type: str, timestamp: float, price: float):
-        """Метод для вказівки входу в угоди (купівля або продаж) в даних trade_type: тип угоди (buy/sell), timestamp: час входу, price: ціна входу"""
+        "Метод для вказівки входу в угоди (купівля або продаж) в даних trade_type: тип угоди (buy/sell), timestamp: час входу, price: ціна входу"
         id_trade = str(uuid.uuid4())
         qty = 1.0 # Default fallback
         
@@ -119,7 +119,7 @@ class LaboratoryBacktesterDealWriter:
     
     @_handle_error
     def _add_trade_exit(self, timestamp: float, price: float, id_trade: str):
-        """Метод для вказівки виходу з угоди (закриття) в даних timestamp: час виходу, price: ціна виходу, id_trade: id угоди"""
+        "Метод для вказівки виходу з угоди (закриття) в даних timestamp: час виходу, price: ціна виходу, id_trade: id угоди"
 
         if not self.trades_list:
             return
@@ -210,6 +210,7 @@ class LaboratoryBacktesterDealWriter:
     # ----------------------------------
     # Метод для фіналізації угод у DataFrame
     # ----------------------------------
+    @_handle_error
     def finalize_trades(self):
         if self.trades_list:
             self.id_trade_info = pd.DataFrame(self.trades_list)
@@ -221,7 +222,7 @@ class LaboratoryBacktesterDealWriter:
     
     @_handle_error
     def save_results_to_db(self, table_name: str = 'backtest_results') -> None:
-        """Метод для збереження всіх угод в окрему таблицю бази даних (Step 0)"""
+        "Метод для збереження всіх угод в окрему таблицю бази даних (Step 0)"
         self.finalize_trades()
         if self.db_manager is not None:
             self.db_manager.insert_data_from_pandas_auto(table_name, self.id_trade_info)

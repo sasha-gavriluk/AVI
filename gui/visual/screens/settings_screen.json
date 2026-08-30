@@ -77,12 +77,13 @@
     },
     {
       "type": "QLabel",
-      "text": "Таймфрейм:"
+      "text": "Таймфрейм, на якому буде відбуватись торгівля:"
     },
     {
-      "id": "input_timeframe",
-      "type": "QLineEdit",
-      "text": "15m"
+      "id": "timeframes_container",
+      "type": "QWidget",
+      "layout": "h",
+      "children": []
     },
     {
       "type": "QLabel",

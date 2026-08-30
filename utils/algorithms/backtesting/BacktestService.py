@@ -2,18 +2,31 @@ import os
 import pandas as pd
 from utils.DataBaseManager import DataBaseManager
 from utils.algorithms.backtesting.MarketRunner import MarketRunner
+from utils.OtherUtils import _handle_error
+
+#------------------------------
+# Сервіс бектестування (WFV)
+#------------------------------
 
 class BacktestService:
+    "Виконує Walk-Forward Validation (WFV) для перевірки надійності стратегій"
+
+    #------------------------------
+    # Ініціалізація класу
+    #------------------------------
+
     def __init__(self, db_path: str):
+        "Ініціалізує сервіс бектестування базою даних"
         self.db_path = db_path
         self.db_name = os.path.basename(db_path)
         
+    #------------------------------
+    # Виконання WFV
+    #------------------------------
+
+    @_handle_error
     def run_wfv(self, strategy, table_name: str, num_windows: int = 5, train_ratio: float = 0.7):
-        """
-        Виконує Walk-Forward Validation для заданої стратегії.
-        Розбиває дані на num_windows вікон, кожне з яких має Train та Test періоди.
-        Повертає список результатів для кожного вікна.
-        """
+        "Розбиває дані на вікна (Train/Test) та запускає симуляцію для перевірки стійкості"
         dbm = DataBaseManager(use_default=True)
         df = dbm.get_data_as_dataframe(table_name)
         
@@ -28,7 +41,6 @@ class BacktestService:
         
         for i in range(num_windows):
             start_idx = i * window_size
-            # Для останнього вікна беремо до кінця
             end_idx = start_idx + window_size if i < num_windows - 1 else total_rows
             
             window_df = df.iloc[start_idx:end_idx]
@@ -71,18 +83,22 @@ class BacktestService:
         dbm.disconnect()
         return results
 
+    #------------------------------
+    # Оцінка підмножини
+    #------------------------------
+
+    @_handle_error
     def _eval_subset(self, strategy, subset_df, dbm, window_name):
+        "Запускає MarketRunner на підмножині даних та повертає метрики результативності"
         res_table = f"temp_wfv_res_{window_name}"
         
         runner = MarketRunner(strategy=strategy, db_path=self.db_path)
         
-        # Патчимо вивід
         import sys, io
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         
         try:
-            # Передаємо df напряму, вимикаємо збереження в БД для оптимізації
             trades_df = runner.run(result_table_name=res_table, df=subset_df.copy(), save_to_db=False)
         except Exception as e:
             print(f"Помилка в MarketRunner: {e}")
@@ -90,7 +106,6 @@ class BacktestService:
         finally:
             sys.stdout = old_stdout
             
-        # Розрахунок метрик
         total_trades = len(trades_df) if trades_df is not None and not trades_df.empty else 0
         pf, wr = 0.0, 0.0
         

@@ -1,4 +1,5 @@
 from PyQt6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget, QGraphicsDropShadowEffect
+from utils.OtherUtils import _handle_error
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 
@@ -115,6 +116,7 @@ class SignalCard(QFrame):
         shadow.setColor(QColor(0, 0, 0, 80))
         self.setGraphicsEffect(shadow)
 
+    @_handle_error
     def update_signal(self, data: dict):
         state = data.get("market_state", "UNKNOWN")
         self.state_label.setText(state.upper())

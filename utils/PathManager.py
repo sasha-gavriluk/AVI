@@ -1,4 +1,5 @@
 import os
+from utils.OtherUtils import _handle_error
 import sys
 import shutil
 import platform
@@ -14,10 +15,9 @@ class PathManager:
     APP_NAME = "AviTradingSystem"
     
     @classmethod
+    @_handle_error
     def get_app_dir(cls):
-        """
-        Повертає папку, де лежить КОД або ЗКОМПІЛЬОВАНІ файли.
-        """
+        "Повертає папку, де лежить КОД або ЗКОМПІЛЬОВАНІ файли."
         # getattr(sys, 'frozen', False) повертає True, якщо це зкомпільована програма (через PyInstaller)
         if getattr(sys, 'frozen', False):
             # sys._MEIPASS - це спеціальна тимчасова папка, куди PyInstaller розпаковує файли
@@ -27,11 +27,9 @@ class PathManager:
             return os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
             
     @classmethod
+    @_handle_error
     def get_user_data_dir(cls):
-        """
-        Повертає захищеню папку користувача (AppData на Windows, .config на Linux).
-        Саме тут будуть жити main.duckdb, settings.json та стратегії користувача.
-        """
+        "Повертає захищеню папку користувача (AppData на Windows, .config на Linux)."
         system = platform.system()
         if system == 'Windows':
             base_dir = os.environ.get('APPDATA', os.path.expanduser('~'))
@@ -128,26 +126,31 @@ strategy = Strategy(
     # ==========================================
 
     @classmethod
+    @_handle_error
     def get_db_path(cls):
-        """Шлях до main.duckdb"""
+        "Шлях до main.duckdb"
         return os.path.join(cls.get_user_data_dir(), "main.duckdb")
         
     @classmethod
+    @_handle_error
     def get_settings_path(cls):
-        """Шлях до settings.json"""
+        "Шлях до settings.json"
         return os.path.join(cls.get_user_data_dir(), "data", "config", "settings.json")
         
     @classmethod
+    @_handle_error
     def get_holidays_path(cls):
-        """Шлях до market_holidays.json"""
+        "Шлях до market_holidays.json"
         return os.path.join(cls.get_user_data_dir(), "data", "config", "market_holidays.json")
         
     @classmethod
+    @_handle_error
     def get_strategies_dir(cls):
-        """Шлях до папки з пітонівськими стратегіями"""
+        "Шлях до папки з пітонівськими стратегіями"
         return os.path.join(cls.get_user_data_dir(), "data", "strategies")
 
     @classmethod
+    @_handle_error
     def get_strategy_meta_path(cls):
-        """Шлях до strategy_meta.json"""
+        "Шлях до strategy_meta.json"
         return os.path.join(cls.get_user_data_dir(), "data", "config", "strategy_meta.json")

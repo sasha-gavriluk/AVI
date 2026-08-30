@@ -57,6 +57,13 @@ class DataBaseManager:
                         del _connections[self.db_path]
                 self.conn = None
 
+    def _get_conn(self):
+        if not getattr(self, 'conn', None):
+            self.connect()
+        if not getattr(self, 'conn', None):
+            raise RuntimeError("Database connection could not be established.")
+        return self.conn
+
     def __enter__(self):
         return self
 
@@ -83,7 +90,7 @@ class DataBaseManager:
         self._validate_table_name(table_name)
         query = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({schema})'
         with _db_lock:
-            self.conn.cursor().execute(query)
+            self._get_conn().cursor().execute(query)
 
     @_handle_error
     def create_index(self, table_name: str, column: str):
@@ -91,7 +98,7 @@ class DataBaseManager:
         self._validate_table_name(table_name)
         index_name = f"idx_{table_name}_{column}"
         with _db_lock:
-            self.conn.cursor().execute(f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{table_name}"("{column}")')
+            self._get_conn().cursor().execute(f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{table_name}"("{column}")')
 
     #------------------------------
     # Вставка даних з pandas DataFrame в таблицю новостворенную
@@ -106,7 +113,7 @@ class DataBaseManager:
 
         temp_view = f"temp_df_{id(df)}"
         with _db_lock:
-            cur = self.conn.cursor()
+            cur = self._get_conn().cursor()
             try:
                 cur.register(temp_view, df)
                 cur.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" AS SELECT * FROM {temp_view}')
@@ -132,7 +139,7 @@ class DataBaseManager:
             print(f"Записано нових рядків (без перевірки timestamp): {len(df)}")
             temp_view = f"temp_df_{id(df)}"
             with _db_lock:
-                cur = self.conn.cursor()
+                cur = self._get_conn().cursor()
                 try:
                     cur.register(temp_view, df)
                     cur.execute(f'INSERT INTO "{table_name}" SELECT * FROM {temp_view}')
@@ -145,7 +152,7 @@ class DataBaseManager:
         temp_view_in = f"temp_df_in_{id(df_to_insert)}"
         
         with _db_lock:
-            cur = self.conn.cursor()
+            cur = self._get_conn().cursor()
             try:
                 cur.register(temp_view_in, df_to_insert)
                 df_to_insert = cur.execute(f"""
@@ -163,12 +170,14 @@ class DataBaseManager:
                 
             if df_to_insert is not None:
                 df_to_insert = df_to_insert.copy(deep=True)
+            else:
+                df_to_insert = pd.DataFrame()
 
         if not df_to_insert.empty:
             print(f"Записано нових рядків: {len(df_to_insert)}")
             temp_view_out = f"temp_df_out_{id(df_to_insert)}"
             with _db_lock:
-                cur = self.conn.cursor()
+                cur = self._get_conn().cursor()
                 try:
                     cur.register(temp_view_out, df_to_insert)
                     cur.execute(f'INSERT INTO "{table_name}" SELECT * FROM {temp_view_out}')
@@ -188,7 +197,7 @@ class DataBaseManager:
         self._validate_table_name(table_name)
 
         with _db_lock:
-            exists = self.conn.cursor().execute(f"SELECT table_name FROM information_schema.tables WHERE table_name = '{table_name}'").fetchone() is not None
+            exists = self._get_conn().cursor().execute(f"SELECT table_name FROM information_schema.tables WHERE table_name = '{table_name}'").fetchone() is not None
         if not exists:
             self.insert_data_from_pandas(table_name, df)
         else:
@@ -208,7 +217,7 @@ class DataBaseManager:
     def get_all_tables(self):
         "Отримання списку всіх таблиць в базі даних"
         with _db_lock:
-            tables = self.conn.cursor().execute("SELECT table_name FROM information_schema.tables").fetchall()
+            tables = self._get_conn().cursor().execute("SELECT table_name FROM information_schema.tables").fetchall()
         return [table[0] for table in tables]
     
     #------------------------------
@@ -220,7 +229,7 @@ class DataBaseManager:
         "Параметри: table_name - назва таблиці"
         self._validate_table_name(table_name)
         with _db_lock:
-            df = self.conn.cursor().execute(f'SELECT * FROM "{table_name}"').fetchdf()
+            df = self._get_conn().cursor().execute(f'SELECT * FROM "{table_name}"').fetchdf()
             if df is not None:
                 # Робимо deep copy щоб уникнути SegFault при zero-copy Arrow коли duckdb.conn закривається
                 df = df.copy(deep=True)
@@ -239,7 +248,7 @@ class DataBaseManager:
         "Параметри: table_name - назва таблиці"
         self._validate_table_name(table_name)
         with _db_lock:
-            df = self.conn.cursor().execute(f'SELECT * FROM "{table_name}" WHERE timestamp = (SELECT MAX(timestamp) FROM "{table_name}")').fetchdf()
+            df = self._get_conn().cursor().execute(f'SELECT * FROM "{table_name}" WHERE timestamp = (SELECT MAX(timestamp) FROM "{table_name}")').fetchdf()
             if df is not None:
                 df = df.copy(deep=True)
         return df
@@ -251,13 +260,13 @@ class DataBaseManager:
     def table_exists(self, table_name: str) -> bool:
         try:
             with _db_lock:
-                tables_df = self.conn.execute("SHOW TABLES;").df()
+                tables_df = self._get_conn().execute("SHOW TABLES;").df()
                 return table_name in tables_df['name'].tolist()
         except Exception:
             return False
 
     @_handle_error
-    def get_data_by_number_range(self, table_name: str, number: int) -> pd.DataFrame:
+    def get_data_by_number_range(self, table_name: str, number: int) -> pd.DataFrame | None:
         "Параметри: table_name - назва таблиці, number - кількість останніх рядків для отримання"
         self._validate_table_name(table_name)
         
@@ -267,7 +276,7 @@ class DataBaseManager:
             
         try:
             with _db_lock:
-                df = self.conn.cursor().execute(f'SELECT * FROM "{table_name}" ORDER BY timestamp DESC LIMIT {number}').fetchdf()
+                df = self._get_conn().cursor().execute(f'SELECT * FROM "{table_name}" ORDER BY timestamp DESC LIMIT {number}').fetchdf()
                 if df is not None:
                     df = df.copy(deep=True)
             if df is not None and not df.empty and 'timestamp' in df.columns:
@@ -282,7 +291,7 @@ class DataBaseManager:
     #------------------------------
 
     @_handle_error
-    def get_time_gaps(self, table_name: str, timeframe_ms: int = 60000) -> list:
+    def get_time_gaps(self, table_name: str, timeframe_ms: int = 60000) -> list | None:
         """
         Знаходить прогалини (аномалії) у часових рядах бази даних.
         timeframe_ms: очікуваний крок між свічками в мілісекундах (60000 для 1 хв).
@@ -307,9 +316,13 @@ class DataBaseManager:
         """
         
         with _db_lock:
-            df = self.conn.cursor().execute(query).fetchdf()
+            df = self._get_conn().cursor().execute(query).fetchdf()
             if df is not None:
                 df = df.copy(deep=True)
+                
+        if df is None:
+            return []
+            
         gaps_list = df.to_dict('records')
         
         # --- ФІЛЬТРАЦІЯ ВИХІДНИХ (Calendar-based weekend filtering) ---
@@ -345,7 +358,7 @@ class DataBaseManager:
     #------------------------------
 
     @_handle_error
-    def get_time_gaps_human_readable(self, table_name: str, timeframe_ms: int = 60000) -> list:
+    def get_time_gaps_human_readable(self, table_name: str, timeframe_ms: int = 60000) -> list | None:
         """
         Знаходить прогалини (аномалії) у часових рядах бази даних та перетворює їх у людський формат.
         timeframe_ms: очікуваний крок між свічками в мілісекундах (60000 для 1 хв).
@@ -354,6 +367,9 @@ class DataBaseManager:
         
         gaps_list = self.get_time_gaps(table_name, timeframe_ms)
         
+        if not gaps_list:
+            return []
+            
         for gap in gaps_list:
             gap['gap_start'] = pd.to_datetime(gap['gap_start'], unit='ms').strftime('%Y-%m-%d %H:%M:%S')
             gap['gap_end'] = pd.to_datetime(gap['gap_end'], unit='ms').strftime('%Y-%m-%d %H:%M:%S')

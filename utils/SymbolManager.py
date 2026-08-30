@@ -6,14 +6,9 @@ class SymbolManager:
     """
 
     @staticmethod
+    @_handle_error
     def get_market_type(symbol: str) -> str:
-        """
-        Визначає ринок активу (crypto, forex, stocks).
-        Правила:
-        - Якщо є '_' або починається з 'X:' -> crypto
-        - Якщо 6 великих літер (без спецсимволів) -> forex
-        - Інакше -> stocks (або невідомо)
-        """
+        "Визначає ринок активу (crypto, forex, stocks)."
         if "_" in symbol or symbol.startswith("X:"):
             return "crypto"
         elif len(symbol) == 6 and symbol.isupper() and symbol.isalpha():
@@ -25,10 +20,9 @@ class SymbolManager:
             return "stocks"
 
     @staticmethod
+    @_handle_error
     def format_for_massive_rest(symbol: str) -> str:
-        """
-        Форматує символ для Massive REST API (наприклад, C:EURUSD, X:BTCUSD).
-        """
+        "Форматує символ для Massive REST API (наприклад, C:EURUSD, X:BTCUSD)."
         market = SymbolManager.get_market_type(symbol)
         if market == "crypto":
             clean_sym = symbol.replace("X:", "").replace("_", "")
@@ -40,10 +34,9 @@ class SymbolManager:
             return symbol # Акції зазвичай йдуть як є (AAPL)
 
     @staticmethod
+    @_handle_error
     def format_for_massive_ws(symbol: str) -> tuple:
-        """
-        Повертає кортеж (market_type, ws_subscription_string) для Polygon WebSocket.
-        """
+        "Повертає кортеж (market_type, ws_subscription_string) для Polygon WebSocket."
         market = SymbolManager.get_market_type(symbol)
         if market == "crypto":
             # Polygon зазвичай використовує пари з USD (наприклад, BTC-USD замість BTC-USDT)
@@ -61,10 +54,9 @@ class SymbolManager:
             return ("stocks", f"T.{symbol}")
 
     @staticmethod
+    @_handle_error
     def format_for_ccxt(symbol: str) -> str:
-        """
-        Форматує символ для CCXT (наприклад, BTC/USDT).
-        """
+        "Форматує символ для CCXT (наприклад, BTC/USDT)."
         # Базова заміна для крипти
         if "_" in symbol:
             return symbol.replace("_", "/")
@@ -78,10 +70,9 @@ class SymbolManager:
         return symbol
 
     @staticmethod
+    @_handle_error
     def extract_internal_symbol(polygon_sym: str, known_symbols: list) -> str:
-        """
-        Повертає оригінальну (внутрішню) назву символу, співставляючи її з відомими символами.
-        """
+        "Повертає оригінальну (внутрішню) назву символу, співставляючи її з відомими символами."
         if polygon_sym in known_symbols:
             return polygon_sym
             

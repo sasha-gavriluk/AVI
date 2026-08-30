@@ -8,18 +8,20 @@ from utils.algorithms.indicators.BacktestAlgorithmProcessor import BacktestAlgor
 import sys
 import os
 
+from utils.OtherUtils import _handle_error
+
 ai_lab_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../../AI_Lab'))
 if ai_lab_dir not in sys.path:
     sys.path.insert(0, ai_lab_dir)
 
 class DataProcessingManager:
-    """Головний менеджер для оркестрації обробки даних"""
-    # ----------------------------------
-    # Ініціалізація
-    # ----------------------------------
+    "Головний менеджер для оркестрації обробки даних (індикатори, патерни, алгоритми)"
+    
+    #------------------------------
+    # Ініціалізація класу
+    #------------------------------
 
     def __init__(self, data: pd.DataFrame, indicators_params=None, pattern_params=None, algorithm_params=None, algorithm_processor_class=BacktestAlgorithmProcessor):
-        """Ініціалізація"""
         self.data = data
         self.processed_data = data.copy()
 
@@ -29,17 +31,17 @@ class DataProcessingManager:
         self.pattern_detector = PatternDetector(
             self.data, self.processed_data, pattern_params
         )
-        # Use the specified algorithm_processor_class
         self.algorithm_processor = algorithm_processor_class(
             self.data, self.processed_data, algorithm_params
         )
 
-    # ----------------------------------
-    # Метод process_all
-    # ----------------------------------
+    #------------------------------
+    # Головний оркестратор
+    #------------------------------
 
+    @_handle_error
     def process_all(self):
-        """Головний процес обробки: індикатори -> патерни -> алгоритми."""
+        "Головний процес послідовної обробки: індикатори -> патерни -> алгоритми"
         self.indicator_processor.process_data()
         self.pattern_detector.process_data()
         self.algorithm_processor.process_data()

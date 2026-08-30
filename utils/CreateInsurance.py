@@ -1,5 +1,6 @@
 import os
 import json
+from utils.OtherUtils import _handle_error
 
 RULES_JSON_CONTENT = """{
   "SMA": {
@@ -1320,9 +1321,21 @@ STRATEGY_META_JSON_CONTENT = """{
 
 """
 
+#------------------------------
+# Клас відновлення конфігурацій
+#------------------------------
+
 class Insurance:
+    "Відновлює необхідні конфігураційні файли (rules.json, strategy_meta.json), якщо вони були видалені або пошкоджені"
+
+    #------------------------------
+    # Відновлення файлів
+    #------------------------------
+
     @staticmethod
+    @_handle_error
     def ensure_files_exist(base_dir=None):
+        "Перевіряє та створює файли конфігурації у вказаній директорії"
         if base_dir is None:
             from utils.PathManager import PathManager
             base_dir = PathManager.get_user_data_dir()
@@ -1343,10 +1356,18 @@ class Insurance:
                 f.write(STRATEGY_META_JSON_CONTENT)
             print("Insurance: Created missing strategy_meta.json")
             
+    #------------------------------
+    # Отримання вмісту
+    #------------------------------
+
     @staticmethod
+    @_handle_error
     def get_rules_content():
+        "Повертає резервну копію rules.json у вигляді словника"
         return json.loads(RULES_JSON_CONTENT)
         
     @staticmethod
+    @_handle_error
     def get_meta_content():
+        "Повертає резервну копію strategy_meta.json у вигляді словника"
         return json.loads(STRATEGY_META_JSON_CONTENT)

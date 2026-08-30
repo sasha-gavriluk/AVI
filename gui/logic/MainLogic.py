@@ -1,8 +1,9 @@
 import os
+from utils.OtherUtils import _handle_error
 import json
 import time
 import pandas as pd
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QScrollArea, QWidget, QCheckBox, QGridLayout
+from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QScrollArea, QWidget, QCheckBox, QGridLayout, QRadioButton
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from gui.engine import Engine as engine
 
@@ -18,6 +19,7 @@ from utils.algorithms.FCryptoLogic import FCryptoLogic
 
 import utils.Config as app_config
 
+@_handle_error
 def parse_timeframe(tf):
     if tf.endswith('m'): return int(tf[:-1]), 'minute'
     if tf.endswith('h'): return int(tf[:-1]), 'hour'
@@ -38,6 +40,7 @@ class DataFetcherWorker(QThread):
         # Без старших ТФ система не бачить, чи локальний рух — це тренд, чи відскок.
         self.timeframes = list(timeframes) if isinstance(timeframes, (list, tuple)) else [timeframes]
 
+    @_handle_error
     def run(self):
         try:
             self.progress.emit("Ініціалізація підключень...")
@@ -74,6 +77,7 @@ class DataFetcherWorker(QThread):
             print(f"[DataFetcher] CRASH: {e}")
             self.error.emit(str(e))
 
+    @_handle_error
     def _sync_timeframe(self, timeframe, gap_analyzer, available_tables):
         "Синхронізує всі активи для ОДНОГО таймфрейму"
         multiplier, tf_str = parse_timeframe(timeframe)
@@ -198,6 +202,7 @@ class SignalsWorker(QThread):
         self.market = market_type
         self.is_running = True
         
+    @_handle_error
     def run(self):
         try:
             from utils.DataBaseManager import DataBaseManager
@@ -263,7 +268,7 @@ class AppLogic:
 
         # Старші таймфрейми для HTF-контексту. Качаються завжди разом із робочим,
         # інакше система не бачить, чи локальний рух — тренд, чи відскок у ведмежому ринку.
-        self.context_timeframes = ['1h', '4h', '1d']
+        self.context_timeframes = ['1h', '4h', '1d', '15m', '5m']
         
         self.crypto_assets = [
             "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", 
@@ -280,6 +285,18 @@ class AppLogic:
         if main_window:
             main_window.setTabEnabled(1, True)
             
+        tf_container = engine.get("timeframes_container")
+        self.tf_buttons = []
+        if tf_container:
+            if not tf_container.layout():
+                tf_container.setLayout(QHBoxLayout())
+            for tf in self.context_timeframes:
+                rb = QRadioButton(tf)
+                if tf == "15m":
+                    rb.setChecked(True)
+                tf_container.layout().addWidget(rb)
+                self.tf_buttons.append((tf, rb))
+                
         input_assets = engine.get("input_assets_list")
         if input_assets and not input_assets.text().strip():
             # Задаємо активи за замовчуванням
@@ -287,6 +304,7 @@ class AppLogic:
             
         self.update_signals_ui()
         
+    @_handle_error
     def on_mode_changed(self, checked=False):
         rb_futures = engine.get("rb_futures")
         rb_bo = engine.get("rb_bo")
@@ -318,6 +336,7 @@ class AppLogic:
             
         self.on_market_changed()
 
+    @_handle_error
     def on_market_changed(self, checked=False):
         input_assets = engine.get("input_assets_list")
         if input_assets:
@@ -331,6 +350,7 @@ class AppLogic:
             
             self.update_signals_ui()
             
+    @_handle_error
     def open_assets_dialog(self):
         main_window = engine.get("main_window")
         if not main_window: return
@@ -378,8 +398,10 @@ class AppLogic:
         scroll.setWidget(content_widget)
         layout.addWidget(scroll)
         
+        @_handle_error
         def select_all():
             for c in checkboxes: c.setChecked(True)
+        @_handle_error
         def deselect_all():
             for c in checkboxes: c.setChecked(False)
             
@@ -389,6 +411,7 @@ class AppLogic:
         btn_ok = QPushButton("Зберегти вибір")
         layout.addWidget(btn_ok)
         
+        @_handle_error
         def save_selection():
             selected = [c.text() for c in checkboxes if c.isChecked()]
             input_assets.setText(", ".join(selected))
@@ -398,6 +421,7 @@ class AppLogic:
         btn_ok.clicked.connect(save_selection)
         dialog.exec()
             
+    @_handle_error
     def on_start(self):
         btn_start = engine.get("btn_start")
         status_label = engine.get("status_label")
@@ -430,7 +454,12 @@ class AppLogic:
         rb_crypto = engine.get("rb_crypto")
         market_type = "Crypto" if (rb_crypto and rb_crypto.isChecked()) else "Forex"
         
-        timeframe = engine.get("input_timeframe").text()
+        timeframe = "15m"
+        if hasattr(self, 'tf_buttons'):
+            for tf, rb in self.tf_buttons:
+                if rb.isChecked():
+                    timeframe = tf
+                    break
         
         input_assets = engine.get("input_assets_list").text().strip()
         assets_list = [a.strip() for a in input_assets.split(",") if a.strip()]
@@ -505,12 +534,14 @@ class AppLogic:
         self.worker.error.connect(self._on_worker_error)
         self.worker.start()
         
+    @_handle_error
     def _on_worker_progress(self, msg):
         print(f"[DataFetcher] {msg}")
         status_label = engine.get("status_label")
         if status_label:
             status_label.setText(msg)
             
+    @_handle_error
     def _on_worker_finished(self):
         status_label = engine.get("status_label")
         main_window = engine.get("main_window")
@@ -528,6 +559,7 @@ class AppLogic:
         if status_label:
             status_label.setText("Система активована. Сигнали оновлено.")
             
+    @_handle_error
     def _on_worker_error(self, err_msg):
         status_label = engine.get("status_label")
         btn_start = engine.get("btn_start")
@@ -538,6 +570,7 @@ class AppLogic:
             btn_start.setText("🚀 Запустити Термінал")
             btn_start.setStyleSheet("")
 
+    @_handle_error
     def update_signals_ui(self):
         signals_placeholder = engine.get("signals_placeholder")
         if not signals_placeholder:
@@ -580,7 +613,12 @@ class AppLogic:
         
         rb_crypto = engine.get("rb_crypto")
         market_type = "Crypto" if (rb_crypto and rb_crypto.isChecked()) else "Forex"
-        timeframe = engine.get("input_timeframe").text()
+        timeframe = "15m"
+        if hasattr(self, 'tf_buttons'):
+            for tf, rb in self.tf_buttons:
+                if rb.isChecked():
+                    timeframe = tf
+                    break
         
         self.signal_cards = {}
         for asset in assets_list:
@@ -604,6 +642,7 @@ class AppLogic:
         self.signals_worker.result_ready.connect(self._on_signal_ready)
         self.signals_worker.start()
 
+    @_handle_error
     def _on_signal_ready(self, asset, signal_data):
         if asset in self.signal_cards:
             card = self.signal_cards[asset]

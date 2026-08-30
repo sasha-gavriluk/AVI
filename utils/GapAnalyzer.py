@@ -1,4 +1,5 @@
 import os
+from utils.OtherUtils import _handle_error
 import json
 import re
 import pandas as pd
@@ -18,6 +19,7 @@ class GapAnalyzer:
         self.holidays = {}
         self._load_holidays()
 
+    @_handle_error
     def _load_holidays(self):
         from utils.PathManager import PathManager
         config_path = PathManager.get_holidays_path()
@@ -28,12 +30,10 @@ class GapAnalyzer:
             except Exception as e:
                 print(f"Помилка завантаження календаря свят: {e}")
 
+    @_handle_error
     def is_expected_gap(self, gap_start_ms: int, gap_end_ms: int,
                         asset_name: str, timeframe_ms: int, market_type: str = "Forex") -> bool:
-        """
-        Повертає True якщо прогалина є 'очікуваною' (вихідний/свято)
-        і НЕ потребує завантаження.
-        """
+        "Повертає True якщо прогалина є 'очікуваною' (вихідний/свято)"
         if market_type == "Crypto":
             return False
             
@@ -49,13 +49,13 @@ class GapAnalyzer:
 
         return False
 
+    @_handle_error
     def _is_forex_asset(self, name: str) -> bool:
         return bool(self.FOREX_ASSETS_PATTERN.search(name.upper()))
 
+    @_handle_error
     def _gap_covers_weekend(self, start: pd.Timestamp, end: pd.Timestamp) -> bool:
-        """Перевіряє чи прогалина є суботою/неділею форекс-ринку.
-        Форекс закривається в п'ятницю ~22:00 UTC, відкривається в понеділок ~22:00 UTC.
-        """
+        "Перевіряє чи прогалина є суботою/неділею форекс-ринку."
         FOREX_CLOSE_HOUR = 22  # UTC
         current = start
         while current < end:
@@ -67,8 +67,9 @@ class GapAnalyzer:
             current += pd.Timedelta(hours=1)
         return False
 
+    @_handle_error
     def _gap_covers_holiday(self, start: pd.Timestamp, end: pd.Timestamp) -> bool:
-        """Перевіряє по збереженому календарю свят."""
+        "Перевіряє по збереженому календарю свят."
         current = start
         while current < end:
             date_str = current.strftime('%Y-%m-%d')
@@ -78,9 +79,10 @@ class GapAnalyzer:
             current += pd.Timedelta(hours=24)
         return False
 
+    @_handle_error
     def filter_real_gaps(self, gaps: list, asset_name: str,
                          timeframe_ms: int, market_type: str = "Forex") -> list:
-        """Повертає тільки реальні прогалини (не вихідні і не свята)."""
+        "Повертає тільки реальні прогалини (не вихідні і не свята)."
         return [
             g for g in gaps
             if not self.is_expected_gap(

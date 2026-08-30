@@ -1,4 +1,5 @@
 import pandas as pd
+from utils.OtherUtils import _handle_error
 
 #------------------------------
 # Фаза тренду
@@ -11,6 +12,7 @@ class TrendPhaseDetector:
     # Оцінка фази
     #------------------------------
 
+    @_handle_error
     def get_phase(self, row: pd.Series) -> str:
         "Оцінює фазу тренду за виснаженням (WCE) та структурою (BOS/CHoCH)"
         # 1. Виснаження від модуля WCE. Колонка саме WCE_TREND_EXHAUSTION_15_3 —
@@ -37,6 +39,7 @@ class FlatPhaseDetector:
     # Оцінка ширини каналу
     #------------------------------
 
+    @_handle_error
     def evaluate(self, current_price: float, res_price: float, sup_price: float) -> str:
         "Рахує ширину каналу у відсотках і вирішує, чи він торговий"
         if res_price is None or sup_price is None:
@@ -64,6 +67,7 @@ class RiskMap:
     # Побудова карти
     #------------------------------
 
+    @_handle_error
     def build_map(self, row: pd.Series, current_price: float) -> dict:
         "Знаходить найближчі опір і підтримку, які слугуватимуть таргетами"
         nearest_res = row.get('Nearest_Resistance_Price', None)

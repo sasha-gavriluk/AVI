@@ -1,4 +1,5 @@
 from utils.FinancialAdvisor import FinancialAdvisor
+from utils.OtherUtils import _handle_error
 
 #------------------------------
 # Мета-захист рахунку
@@ -19,6 +20,7 @@ class AccountGuard:
     # Дозвіл на торгівлю
     #------------------------------
 
+    @_handle_error
     def can_trade(self, account_state: dict) -> bool:
         "Вирішує, чи дозволено відкривати нові угоди з огляду на стан рахунку"
         # 1. Денний ліміт збитків
@@ -50,6 +52,7 @@ class CorrelationGuard:
     # Коригування розміру
     #------------------------------
 
+    @_handle_error
     def adjust_size(self, new_asset: str, new_direction: str, active_positions: list) -> float:
         "Повертає множник розміру. Крипто-активи вважаємо скорельованими між собою"
         multiplier = 1.0
@@ -71,6 +74,7 @@ class EventGuard:
     # Перевірка безпеки часу
     #------------------------------
 
+    @_handle_error
     def is_safe_to_trade(self, current_time, news_calendar=None) -> bool:
         "Заглушка: без підключеного календаря новин завжди дозволяє торгівлю"
         if news_calendar is None:
@@ -100,6 +104,7 @@ class PositionSizer:
     # Розмір і перевірка ліквідації
     #------------------------------
 
+    @_handle_error
     def calculate(self, account_state: dict, entry_price: float, stop_price: float,
                   direction: str, size_multiplier: float = 1.0) -> dict:
         "Повертає розмір позиції, маржу, ціну ліквідації та прапорець валідності"

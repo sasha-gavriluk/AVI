@@ -3,6 +3,7 @@ import math
 import numpy as np
 import pandas as pd
 from utils.DataBaseManager import DataBaseManager
+from utils.OtherUtils import _handle_error
 
 # Генерація/тестування/сканування класичних rules_engine-стратегій
 # видалено разом із самим rules_engine (заморожено й прибрано з проєкту).
@@ -10,11 +11,11 @@ from utils.DataBaseManager import DataBaseManager
 
 
 class TradingCopilot:
-    """
-    Пам'ять і прогнозування досвіду бектестів: зберігає результати в БД,
-    оцінює компоненти (індикатори/патерни) за історичною успішністю та
-    прогнозує шанси нових комбінацій на основі накопиченого досвіду.
-    """
+    "Пам'ять і прогнозування: зберігає результати в БД та прогнозує шанси нових комбінацій"
+
+    #------------------------------
+    # Ініціалізація класу
+    #------------------------------
 
     def __init__(self, db_path: str = None, half_life_days: int = 90):
         self.db_path = db_path
@@ -23,13 +24,12 @@ class TradingCopilot:
         self.update_threshold_weight = 15.0
 
     def _db_kwargs(self) -> dict:
-        """kwargs для DataBaseManager: власний шлях, якщо задано, інакше дефолтна БД."""
+        "Повертає kwargs для DataBaseManager (власний шлях або дефолтна БД)"
         return {'db_path': self.db_path} if self.db_path else {'use_default': True}
 
-    # =========================================================================
-    # ПАМ'ЯТЬ ТА ПРОГНОЗУВАННЯ (Колишні TradingCopilot та ExperienceAnalyzer)
-    # =========================================================================
-    
+    #------------------------------
+    # Управління пам'яттю
+    #------------------------------
     def _time_decay_weight(self, timestamp_str: str, half_life_days: int = None) -> float:
         """
         Чим старіший запис — тим менша його вага.
@@ -85,7 +85,9 @@ class TradingCopilot:
         except Exception as e:
             print(f"Помилка при збереженні результатів: {e}")
 
+    @_handle_error
     def get_memory_df(self) -> pd.DataFrame:
+        "Повертає датафрейм із історією бектестів (copilot_memory)"
         try:
             kwargs = self._db_kwargs()
             with DataBaseManager(**kwargs) as db:
@@ -97,7 +99,9 @@ class TradingCopilot:
             print(f"Помилка зчитування пам'яті копілота з бази: {e}")
         return pd.DataFrame()
 
+    @_handle_error
     def record_backtest_result(self, context: dict, indicators: list, performance: dict, note: str, logic_snapshot: dict = None):
+        "Зберігає результат бектесту в copilot_memory"
 
         def safe_float(val):
             if pd.isna(val):
@@ -138,7 +142,9 @@ class TradingCopilot:
         except Exception as e:
             print(f"Помилка збереження пам'яті: {e}")
 
+    @_handle_error
     def predict_success_chance(self, current_asset: str, current_tf: str, current_indicators: list) -> dict:
+        "Прогнозує шанси на успіх нової комбінації на основі історії"
         memory = self.get_memory_df()
         if memory.empty:
             return {"status": "empty", "message": "База ще порожня. Проведіть кілька бектестів для навчання!"}
@@ -188,8 +194,9 @@ class TradingCopilot:
         summary = self.generate_experience_summary(current_indicators)
         return {"status": "similar_match", "summary": summary}
 
+    @_handle_error
     def generate_experience_summary(self, indicators: list) -> str:
-        """Аналіз досвіду у текстовому вигляді для звіту."""
+        "Формує текстовий звіт-аналіз історичного досвіду для вибраних індикаторів"
         df = self.get_memory_df()
         if df.empty:
              return "База досвіду порожня або не знайдена."
@@ -281,12 +288,9 @@ class TradingCopilot:
 
         return "\n".join(summary_lines)
 
+    @_handle_error
     def get_best_components(self, direction="BUY") -> dict:
-        """
-        Аналізує copilot_memory -> які елементи найчастіше
-        зустрічаються в успішних стратегіях (score > 0.6).
-        Повертає рейтинг: {"BOS": 0.78, "RSI_14": 0.71, ...}
-        """
+        "Повертає рейтинг найкращих компонентів (індикаторів), які найчастіше зустрічаються в успішних стратегіях"
         df = self.get_memory_df()
         if df.empty:
             return {}

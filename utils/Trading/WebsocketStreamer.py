@@ -1,4 +1,5 @@
 import time
+from utils.OtherUtils import _handle_error
 import asyncio
 from PyQt6.QtCore import QThread, pyqtSignal
 from utils.Trading.TickAggregator import TickAggregator
@@ -47,13 +48,15 @@ class WebsocketStreamerThread(QThread):
         self.tick_buffers = {sym: [] for sym in symbols}
         self.loop = None
         
+    @_handle_error
     def _flush_ticks(self, sym: str):
-        """Примусово скидає накопичені тіки в базу (викликається коли буфер повний або свічка закрилась)"""
+        "Примусово скидає накопичені тіки в базу (викликається коли буфер повний або свічка закрилась)"
         buffer = self.tick_buffers.get(sym, [])
         if buffer:
             self.flush_ticks_signal.emit(sym, list(buffer))
             self.tick_buffers[sym] = []
 
+    @_handle_error
     def run(self):
         self.log_signal.emit(f"🔄 Запуск WebSocket ({self.provider}) для {len(self.symbols)} активів...")
         
@@ -197,6 +200,7 @@ class WebsocketStreamerThread(QThread):
             self.log_signal.emit("⚠️ Немає валідних активів для Massive WebSocket.")
 
 
+    @_handle_error
     def stop(self):
         self.is_running = False
         # Прокидаємо loop якщо він чекає

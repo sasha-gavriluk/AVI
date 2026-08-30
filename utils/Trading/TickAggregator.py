@@ -1,4 +1,5 @@
 import pandas as pd
+from utils.OtherUtils import _handle_error
 from typing import List, Dict, Optional
 
 class TickAggregator:
@@ -18,18 +19,14 @@ class TickAggregator:
         self.wait_for_boundary = wait_for_boundary
         self.waiting_boundary_start = None
         
+    @_handle_error
     def _get_candle_start_time(self, timestamp_ms: int) -> int:
-        """Повертає час початку свічки для заданого timestamp"""
+        "Повертає час початку свічки для заданого timestamp"
         return (timestamp_ms // self.timeframe_ms) * self.timeframe_ms
 
+    @_handle_error
     def process_tick(self, timestamp_ms: int, price: float, volume: float) -> Optional[Dict]:
-        """
-        Обробляє один тік.
-        :param timestamp_ms: Час тіку в мілісекундах
-        :param price: Ціна
-        :param volume: Об'єм
-        :return: Закриту свічку у вигляді словника (якщо тік відкрив нову свічку), або None
-        """
+        "Обробляє один тік."
         candle_start = self._get_candle_start_time(timestamp_ms)
         
         if self.wait_for_boundary:
@@ -75,17 +72,16 @@ class TickAggregator:
 
         return closed_candle
 
+    @_handle_error
     def get_current_candle(self) -> Optional[Dict]:
-        """Повертає поточну (незакриту) свічку"""
+        "Повертає поточну (незакриту) свічку"
         if self.current_candle:
             return self.current_candle.copy()
         return None
         
+    @_handle_error
     def process_ticks_batch(self, ticks: List[Dict]) -> List[Dict]:
-        """
-        Обробляє масив тіків (наприклад, з історії).
-        Формат тіка: {'timestamp': 123, 'price': 1.0, 'volume': 100}
-        """
+        "Обробляє масив тіків (наприклад, з історії)."
         closed_candles = []
         for tick in ticks:
             res = self.process_tick(tick['timestamp'], tick['price'], tick['volume'])

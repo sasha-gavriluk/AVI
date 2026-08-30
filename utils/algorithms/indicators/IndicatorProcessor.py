@@ -2,19 +2,26 @@ import numpy as np
 import pandas as pd
 from utils.algorithms.WrapCandleEngine import WCE
 
+from utils.OtherUtils import _handle_error
+
 class IndicatorProcessor:
+    "Процесор для пакетного обчислення індикаторів"
+
+    #------------------------------
+    # Ініціалізація класу
+    #------------------------------
+
     def __init__(self, data: pd.DataFrame, processed_data: pd.DataFrame, indicators_params=None):
         self.data = data
         self.processed_data = processed_data
         self.indicators_params = indicators_params if indicators_params is not None else []
 
-    def _get_unique_column_name(self, base_name: str) -> str:
-        """Return a unique column name based on base_name.
+    #------------------------------
+    # Внутрішній метод для генерації унікального імені колонки
+    #------------------------------
 
-        If a column with base_name already exists in processed_data, a numeric
-        suffix is appended. This allows the same indicator to be added multiple
-        times even with identical parameters.
-        """
+    def _get_unique_column_name(self, base_name: str) -> str:
+        "Додає суфікс, якщо колонка з таким ім'ям вже існує (дозволяє багаторазовий запуск однакових індикаторів)"
         if base_name not in self.processed_data.columns:
             return base_name
         counter = 1
@@ -24,47 +31,51 @@ class IndicatorProcessor:
             new_name = f"{base_name}_{counter}"
         return new_name
 
-    # Окремі методи для кожного індикатора
+    #------------------------------
+    # Прості ковзні середні (SMA, EMA)
+    #------------------------------
+
+    @_handle_error
     def add_sma(self, period=20):
+        "Метод для розрахунку SMA"
         column = self._get_unique_column_name(f'SMA_{period}')
         self.processed_data[column] = self.data['close'].rolling(window=period).mean()
 
+    @_handle_error
     def add_ema(self, period=20):
+        "Метод для розрахунку EMA"
         column = self._get_unique_column_name(f'EMA_{period}')
         self.processed_data[column] = self.data['close'].ewm(span=period, adjust=False).mean()
 
-    # ----------------------------------
+    #------------------------------
     # Перетини ковзних середніх
-    # ----------------------------------
+    #------------------------------
 
+    @_handle_error
     def add_sma_cross(self, period_short=10, period_long=50, column='close'):
-        """Метод для визначення перетину двох SMA (швидкої та повільної)"""
+        "Метод для визначення перетину двох SMA (швидкої та повільної)"
         sma_short = self.data[column].rolling(window=period_short).mean()
         sma_long = self.data[column].rolling(window=period_long).mean()
         cross = (sma_short > sma_long).astype(int) - (sma_short < sma_long).astype(int)
         cross_column = self._get_unique_column_name(f"SMA_Cross_{period_short}_{period_long}")
         self.processed_data[cross_column] = cross
 
+    @_handle_error
     def add_ema_cross(self, period_short=10, period_long=50, column='close'):
-        """Метод для визначення перетину двох EMA (швидкої та повільної)"""
+        "Метод для визначення перетину двох EMA (швидкої та повільної)"
         ema_short = self.data[column].ewm(span=period_short, adjust=False).mean()
         ema_long = self.data[column].ewm(span=period_long, adjust=False).mean()
         cross = (ema_short > ema_long).astype(int) - (ema_short < ema_long).astype(int)
         cross_column = self._get_unique_column_name(f"EMA_Cross_{period_short}_{period_long}")
         self.processed_data[cross_column] = cross
 
-    # ----------------------------------
-    # Осцилятори
-    # ----------------------------------
+    #------------------------------
+    # Осцилятори (RSI)
+    #------------------------------
 
+    @_handle_error
     def add_rsi(self, period=14, column='close'):
-        """
-        Метод для додавання індикатора RSI (Relative Strength Index).
-        
-        Параметри:
-        - period: період (за замовчуванням 14)
-        - column: колонка для розрахунку (зазвичай 'close')
-        """
+        "Метод для додавання індикатора RSI (Relative Strength Index)"
         delta = self.data[column].diff()
         gain = (delta.where(delta > 0, 0)).fillna(0)
         loss = (-delta.where(delta < 0, 0)).fillna(0)
@@ -72,29 +83,22 @@ class IndicatorProcessor:
         avg_loss = loss.rolling(window=period).mean()
         rs = avg_gain / avg_loss
         rsi = 100 - (100 / (1 + rs))
-        column = self._get_unique_column_name(f'RSI_{period}')
-        self.processed_data[column] = rsi
+        col_name = self._get_unique_column_name(f'RSI_{period}')
+        self.processed_data[col_name] = rsi
 
-    # ----------------------------------
-    # Індикатор MACD
-    # ----------------------------------
+    #------------------------------
+    # MACD
+    #------------------------------
 
+    @_handle_error
     def add_macd(self, fast_period=12, slow_period=26, signal_period=9, column='close'):
-        """
-        Метод для додавання індикатора MACD (Moving Average Convergence Divergence).
-        
-        Параметри:
-        - fast_period: швидкий період (за замовчуванням 12)
-        - slow_period: повільний період (за замовчуванням 26)
-        - signal_period: сигнальний період (за замовчуванням 9)
-        """
+        "Метод для додавання індикатора MACD (Moving Average Convergence Divergence)"
         short_ema = self.data[column].ewm(span=fast_period, adjust=False).mean()
         long_ema = self.data[column].ewm(span=slow_period, adjust=False).mean()
         macd = short_ema - long_ema
         signal = macd.ewm(span=signal_period, adjust=False).mean()
         macd_hist = macd - signal
 
-        # Save the MACD components with parameter-specific column names
         macd_column = self._get_unique_column_name(f'MACD_{fast_period}_{slow_period}_{signal_period}')
         signal_column = self._get_unique_column_name(f'MACD_Signal_{fast_period}_{slow_period}_{signal_period}')
         hist_column = self._get_unique_column_name(f'MACD_Hist_{fast_period}_{slow_period}_{signal_period}')
@@ -103,20 +107,19 @@ class IndicatorProcessor:
         self.processed_data[signal_column] = signal
         self.processed_data[hist_column] = macd_hist
 
-    # ----------------------------------
+    #------------------------------
     # Смуги Боллінджера
-    # ----------------------------------
+    #------------------------------
 
+    @_handle_error
     def add_bollinger_bands(self, period=20, std_multiplier=2, column='close'):
-        """Метод для розрахунку та додавання смуг Боллінджера (Bollinger Bands)"""
+        "Метод для розрахунку та додавання смуг Боллінджера (Bollinger Bands)"
         sma = self.data[column].rolling(window=period).mean()
         std = self.data[column].rolling(window=period).std()
         upper_band = sma + (std_multiplier * std)
         lower_band = sma - (std_multiplier * std)
 
-        # Замінюємо крапку на підкреслення в std_multiplier
         std_multiplier_str = str(std_multiplier).replace('.', '_')
-
         upper_band_column = self._get_unique_column_name(f'Bollinger_Upper_{period}_{std_multiplier_str}')
         lower_band_column = self._get_unique_column_name(f'Bollinger_Lower_{period}_{std_multiplier_str}')
         middle_band_column = self._get_unique_column_name(f'Bollinger_Middle_{period}')
@@ -125,19 +128,13 @@ class IndicatorProcessor:
         self.processed_data[lower_band_column] = lower_band
         self.processed_data[middle_band_column] = sma
 
-    # ----------------------------------
-    # Стохастик
-    # ----------------------------------
+    #------------------------------
+    # Стохастик (Stochastic)
+    #------------------------------
 
+    @_handle_error
     def add_stochastic(self, k_period=14, d_period=3, column='close'):
-        """
-        Метод для додавання індикатора Stochastic Oscillator до даних.
-
-        Параметри:
-        - k_period: int, період для %K лінії
-        - d_period: int, період для %D лінії (сигнальна лінія)
-        - column: str, колонка для розрахунку (зазвичай 'close')
-        """
+        "Метод для додавання індикатора Stochastic Oscillator"
         high = self.data['high']
         low = self.data['low']
         close = self.data[column]
@@ -154,12 +151,13 @@ class IndicatorProcessor:
         self.processed_data[k_column] = stochastic_k
         self.processed_data[d_column] = stochastic_d
 
-    # ----------------------------------
-    # ADX (Average Directional Index)
-    # ----------------------------------
+    #------------------------------
+    # Сила тренду (ADX)
+    #------------------------------
 
+    @_handle_error
     def add_adx(self, period=14):
-        """Метод для розрахунку індикатора сили тренду ADX"""
+        "Метод для розрахунку індикатора сили тренду ADX"
         high = self.data['high']
         low = self.data['low']
         close = self.data['close']
@@ -172,46 +170,47 @@ class IndicatorProcessor:
         minus_dm = minus_dm.abs()
 
         tr1 = high - low
-        tr2 = abs(high - close.shift())
-        tr3 = abs(low - close.shift())
+        tr2 = (high - close.shift()).abs()
+        tr3 = (low - close.shift()).abs()
         true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
         atr = true_range.rolling(window=period).mean()
 
         plus_di = 100 * (plus_dm.ewm(alpha=1/period).mean() / atr)
         minus_di = 100 * (minus_dm.ewm(alpha=1/period).mean() / atr)
 
-        dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
+        dx = ((plus_di - minus_di).abs() / (plus_di + minus_di)) * 100
         adx = dx.ewm(alpha=1/period).mean()
 
-        column = self._get_unique_column_name(f'ADX_{period}')
-        self.processed_data[column] = adx
-        # print(f"ADX_{period} - Min: {adx.min()}, Mean: {adx.mean()}, Max: {adx.max()}")
+        col_name = self._get_unique_column_name(f'ADX_{period}')
+        self.processed_data[col_name] = adx
 
-    # ----------------------------------
-    # ATR (Average True Range)
-    # ----------------------------------
+    #------------------------------
+    # Волатильність (ATR)
+    #------------------------------
 
+    @_handle_error
     def add_atr(self, period=14):
-        """Метод для розрахунку істинного діапазону волатильності ATR"""
+        "Метод для розрахунку істинного діапазону волатильності ATR"
         high = self.data['high']
         low = self.data['low']
         close = self.data['close']
 
         tr1 = high - low
-        tr2 = abs(high - close.shift())
-        tr3 = abs(low - close.shift())
+        tr2 = (high - close.shift()).abs()
+        tr3 = (low - close.shift()).abs()
         true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
 
         atr = true_range.rolling(window=period).mean()
-        column = self._get_unique_column_name(f'ATR_{period}')
-        self.processed_data[column] = atr  
+        col_name = self._get_unique_column_name(f'ATR_{period}')
+        self.processed_data[col_name] = atr  
 
-    # ----------------------------------
+    #------------------------------
     # Williams %R
-    # ----------------------------------
+    #------------------------------
 
+    @_handle_error
     def add_williamsr(self, period=14):
-        """Метод для розрахунку індикатора Williams %R"""
+        "Метод для розрахунку індикатора Williams %R"
         high = self.data['high']
         low = self.data['low']
         close = self.data['close']
@@ -220,35 +219,33 @@ class IndicatorProcessor:
         lowest_low = low.rolling(window=period).min()
 
         williams_r = -100 * (highest_high - close) / (highest_high - lowest_low)
-        column = self._get_unique_column_name(f'WilliamsR_{period}')
-        self.processed_data[column] = williams_r
+        col_name = self._get_unique_column_name(f'WilliamsR_{period}')
+        self.processed_data[col_name] = williams_r
 
-    # ----------------------------------
+    #------------------------------
     # CCI (Commodity Channel Index)
-    # ----------------------------------
+    #------------------------------
 
+    @_handle_error
     def add_cci(self, period=20):
-        """Метод для розрахунку індикатора CCI"""
+        "Метод для розрахунку індикатора CCI"
         tp = (self.data['high'] + self.data['low'] + self.data['close']) / 3
         sma_tp = tp.rolling(window=period).mean()
-        mean_dev = tp.rolling(window=period).apply(lambda x: np.mean(np.abs(x - np.mean(x))))
+        mean_dev = tp.rolling(window=period).apply(lambda x: np.mean(np.abs(x - np.mean(x))), raw=True)
         cci = (tp - sma_tp) / (0.015 * mean_dev)
-        column = self._get_unique_column_name(f'CCI_{period}')
-        self.processed_data[column] = cci
+        col_name = self._get_unique_column_name(f'CCI_{period}')
+        self.processed_data[col_name] = cci
 
-    # ----------------------------------
-    # Keltner Channel
-    # ----------------------------------
+    #------------------------------
+    # Канали Кельтнера (Keltner Channel)
+    #------------------------------
 
+    @_handle_error
     def add_keltner_channel(self, period=20, multiplier=2):
-        """
-        Метод для розрахунку каналів Кельтнера.
-        Обчислює Keltner Channel без використання ATR (на базі середнього діапазону).
-        """
+        "Метод для розрахунку каналів Кельтнера без використання ATR (на базі середнього діапазону)"
         typical_price = (self.processed_data['high'] + self.processed_data['low'] + self.processed_data['close']) / 3
         middle_band = typical_price.ewm(span=period, adjust=False).mean()
 
-        # Обчислення середнього діапазону між High і Low
         high_low_range = self.processed_data['high'] - self.processed_data['low']
         average_range = high_low_range.rolling(window=period).mean()
 
@@ -263,42 +260,36 @@ class IndicatorProcessor:
         self.processed_data[upper_column] = upper_band
         self.processed_data[lower_column] = lower_band
 
-    # ----------------------------------
-    # Об'ємні індикатори
-    # ----------------------------------
+    #------------------------------
+    # Об'єм
+    #------------------------------
 
+    @_handle_error
     def add_volume_avg(self, period=20):
-        """Метод для розрахунку ковзної середньої об'єму"""
-        column = self._get_unique_column_name(f'Volume_Avg_{period}')
-        self.processed_data[column] = self.data['volume'].rolling(window=period).mean()
+        "Метод для розрахунку ковзної середньої об'єму"
+        col_name = self._get_unique_column_name(f'Volume_Avg_{period}')
+        self.processed_data[col_name] = self.data['volume'].rolling(window=period).mean()
 
-    # ----------------------------------
+    #------------------------------
     # Wrap Candle Engine (WCE)
-    # ----------------------------------
+    #------------------------------
 
+    @_handle_error
     def add_wce(self, period=10):
-        """Метод для перетворення свічок у токени WCE (напр. B555, S234)"""
+        "Метод для перетворення свічок у токени WCE (напр. B555, S234)"
         wce = WCE(self.data, period=period)
-        column = self._get_unique_column_name(f'WCE_{period}')
-        self.processed_data[column] = wce.get_combined_sequence_v2()
+        col_name = self._get_unique_column_name(f'WCE_{period}')
+        self.processed_data[col_name] = wce.get_combined_sequence_v2()
 
-    # ----------------------------------
-    # Кластеризація ринку (Market States)
-    # ----------------------------------
+    #------------------------------
+    # Кластеризація ринку (Market States Linear)
+    #------------------------------
 
+    @_handle_error
     def add_market_state_linear(self, period=20, atr_period=14, slope_atr_threshold=0.07, vol_threshold=1.5):
-        """
-        Метод лінійної кластеризації станів ринку.
-        Визначає стан ринку на основі нормалізованого нахилу лінійної регресії та волатильності.
-        Стани:
-         1: 'uptrend' (Висхідний тренд)
-        -1: 'downtrend' (Низхідний тренд)
-         0: 'flat' (Боковик)
-         3: 'volatility' (Висока волатильність/хаос)
-        """
+        "Метод лінійної кластеризації станів ринку (1: uptrend, -1: downtrend, 0: flat, 3: volatility)"
         close_prices = self.data['close']
 
-        # 1. Розрахунок нахилу лінійної регресії (Slope)
         x = np.arange(period)
         x_mean = x.mean()
         x_diff = x - x_mean
@@ -313,17 +304,14 @@ class IndicatorProcessor:
 
         slope = close_prices.rolling(window=period).apply(calc_slope, raw=True)
 
-        # 2. Розрахунок волатильності
         sma = close_prices.rolling(window=period).mean()
         std_dev = close_prices.rolling(window=period).std()
         normalized_volatility = (std_dev / sma) * 100
 
-        # Визначаємо відносну волатильність до середньої за довгий період
         long_period = period * 4
         avg_volatility = normalized_volatility.rolling(window=long_period).mean()
         volatility_ratio = normalized_volatility / avg_volatility
 
-        # 3. Отримуємо ATR для динамічного порогу
         atr_col = f'ATR_{atr_period}'
         if atr_col in self.processed_data.columns:
             atr = self.processed_data[atr_col]
@@ -334,10 +322,8 @@ class IndicatorProcessor:
             tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
             atr = tr.rolling(window=atr_period).mean()
 
-        # 4. Кластеризація (Маркування станів)
         states = pd.Series(0, index=self.data.index)
 
-        # Логіка станів (Динамічний поріг від ATR)
         vol_condition = volatility_ratio > vol_threshold
         uptrend_condition = (slope > atr * slope_atr_threshold) & (~vol_condition)
         downtrend_condition = (slope < -atr * slope_atr_threshold) & (~vol_condition)
@@ -346,26 +332,23 @@ class IndicatorProcessor:
         states.loc[downtrend_condition] = -1
         states.loc[vol_condition] = 3
 
-        # Зберігаємо результати
         column_slope = self._get_unique_column_name(f'Market_Slope_{period}')
         column_vol = self._get_unique_column_name(f'Market_VolRatio_{period}')
         column_state = self._get_unique_column_name(f'Market_State_Linear_{period}')
 
-        # Зберігаємо відношення нахилу до ATR як індикатор "Сили Тренду"
         slope_atr_ratio = slope / atr
         
         self.processed_data[column_slope] = slope_atr_ratio
         self.processed_data[column_vol] = volatility_ratio
         self.processed_data[column_state] = states
 
-    # ----------------------------------
-    # Головна функція
-    # ----------------------------------
+    #------------------------------
+    # Оркестратор
+    #------------------------------
 
+    @_handle_error
     def process_data(self):
-        """Метод-оркестратор для обробки та виклику всіх вказаних індикаторів"""
-
-        # Мапимо імена функцій на методи
+        "Метод-оркестратор для виклику всіх вказаних індикаторів з параметрами"
         indicator_methods = {
             'SMA': self.add_sma,
             'EMA': self.add_ema,
@@ -385,22 +368,15 @@ class IndicatorProcessor:
         }
 
         if self.indicators_params:
-            # Якщо параметри передані
             for indicator in self.indicators_params:
                 name = indicator.get('name')
                 params = indicator.get('parameters', {})
-
                 if name in indicator_methods:
                     indicator_methods[name](**params)
                 else:
                     print(f"Індикатор '{name}' не підтримується.")
         else:
-            # Якщо параметри не передані — запускаємо всі індикатори зі стандартними значеннями
             for method in indicator_methods.values():
                 method()
 
         return self.processed_data
-
-# ==================================
-# Клас для виявлення свічкових патернів
-# ==================================

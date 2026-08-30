@@ -1,28 +1,29 @@
 import pandas as pd
 import numpy as np
 
+from utils.OtherUtils import _handle_error
+
 class WCEAnomalyDetector:
-    """
-    Алгоритм для відстеження 'ефекту розтягнутої гумки' (аномалії) на базі WCE.
-    Рівень аномальності: |body - 5| + |shadow - 5| + |scale - 5|
+    "Алгоритм для відстеження 'ефекту розтягнутої гумки' (аномалії) на базі WCE. Рівень аномальності: |body - 5| + |shadow - 5| + |scale - 5|"
     
-    Вхід (Сигнал): 
-    - Аномальність зростала і досягла піку >= peak_threshold
-    - У перший момент зниження аномальності генерується сигнал:
-      - 1 (BUY), якщо аномалія була на S-токені (ведмежа свічка)
-      - -1 (SELL), якщо аномалія була на B-токені (бичача свічка)
-      
-    Вихід (Зняття сигналу):
-    - Аномальність падає до <= norm_threshold (сигнал стає 0).
-    """
-    
+    #------------------------------
+    # Ініціалізація класу
+    #------------------------------
+
     def __init__(self, df: pd.DataFrame, wce_col: str, peak_threshold: int = 6, norm_threshold: int = 3):
         self.df = df
         self.wce_col = wce_col
         self.peak_threshold = peak_threshold
         self.norm_threshold = norm_threshold
 
+    #------------------------------
+    # Метод розрахунку аномалій
+    #------------------------------
+
+    @_handle_error
     def calculate(self) -> pd.Series:
+        "Вхід (Сигнал): Аномальність зростала і досягла піку >= peak_threshold. У перший момент зниження аномальності генерується сигнал: 1 (BUY), якщо аномалія була на S-токені, -1 (SELL), якщо аномалія була на B-токені. Вихід (Зняття сигналу): Аномальність падає до <= norm_threshold (сигнал стає 0)."
+        
         if self.wce_col not in self.df.columns:
             return pd.Series(0, index=self.df.index)
             
@@ -87,28 +88,28 @@ class WCEAnomalyDetector:
             
         return pd.Series(signals, index=self.df.index)
 
+
 class WCETrendExhaustionDetector:
-    """
-    Алгоритм для відстеження 'параболічного виснаження' на базі WCE.
-    Накопичує аномальність поспіль йдучих свічок одного напрямку, якщо їхня аномальність > norm_threshold.
+    "Алгоритм для відстеження 'параболічного виснаження' на базі WCE. Накопичує аномальність поспіль йдучих свічок одного напрямку, якщо їхня аномальність > norm_threshold."
     
-    Вхід (Сигнал): 
-    - Кумулятивна аномальність зростала і досягла піку >= peak_threshold
-    - У перший момент переривання серії (зміна напрямку або падіння аномальності) генерується сигнал:
-      - 1 (BUY), якщо парабола була на S-токенах (ведмежа серія)
-      - -1 (SELL), якщо парабола була на B-токенах (бичача серія)
-      
-    Вихід (Зняття сигналу):
-    - Кумулятивна аномальність падає до <= norm_threshold (сигнал стає 0).
-    """
-    
+    #------------------------------
+    # Ініціалізація класу
+    #------------------------------
+
     def __init__(self, df: pd.DataFrame, wce_col: str, peak_threshold: int = 15, norm_threshold: int = 3):
         self.df = df
         self.wce_col = wce_col
         self.peak_threshold = peak_threshold
         self.norm_threshold = norm_threshold
 
+    #------------------------------
+    # Метод розрахунку виснаження тренду
+    #------------------------------
+
+    @_handle_error
     def calculate(self) -> pd.Series:
+        "Вхід (Сигнал): Кумулятивна аномальність досягла піку >= peak_threshold. У перший момент переривання серії генерується сигнал: 1 (BUY) для S-токенів, -1 (SELL) для B-токенів. Вихід: Кумулятивна аномальність падає до <= norm_threshold."
+
         if self.wce_col not in self.df.columns:
             return pd.Series(0, index=self.df.index)
             

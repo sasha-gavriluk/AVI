@@ -1,5 +1,6 @@
 import pandas as pd
 from utils.FinancialAdvisor import FinancialAdvisor
+from utils.OtherUtils import _handle_error
 
 #------------------------------
 # Перевірка тригерів входу
@@ -12,6 +13,7 @@ class EntryTriggerValidator:
     # Пошук тригера
     #------------------------------
 
+    @_handle_error
     def check_trigger(self, row: pd.Series, current_price: float, regime: str, flat_phase: str):
         "Повертає (trigger_type, direction) або (None, None), якщо входу немає"
         if regime == 'TREND':
@@ -47,6 +49,7 @@ class RewardRiskCalculator:
     # Оцінка угоди
     #------------------------------
 
+    @_handle_error
     def evaluate(self, entry_price: float, trigger_type: str, risk_map: dict,
                  direction: str, row: pd.Series) -> dict:
         "Визначає стоп і ціль, обчислює R:R. Накладає вето, якщо R:R нижче мінімуму"
@@ -118,6 +121,7 @@ class InvalidationRules:
     #------------------------------
 
     @staticmethod
+    @_handle_error
     def set_rule(trigger_type: str, entry_price: float, stop_price: float, direction: str) -> str:
         "Створює правило виду 'CLOSE < 1.2345' — закриття за рівнем стопа вбиває тезу"
         operator = "<" if direction == 'BUY' else ">"
