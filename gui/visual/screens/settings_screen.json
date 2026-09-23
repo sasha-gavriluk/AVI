@@ -6,8 +6,77 @@
     {
       "id": "title_label",
       "type": "QLabel",
-      "text": "Налаштування Роботи (Massive & CCXT)"
+      "text": "Налаштування Роботи (Massive & CCXT)",
+      "style": "title"
     },
+
+    {
+      "type": "QLabel",
+      "text": "КЛЮЧІ BYBIT",
+      "style": "section"
+    },
+    {
+      "type": "QWidget",
+      "layout": "h",
+      "children": [
+        {
+          "type": "QLabel",
+          "text": "Ключ:",
+          "style": "label",
+          "minimum_width": 70
+        },
+        {
+          "id": "input_bybit_key",
+          "type": "QLineEdit",
+          "style": "input",
+          "placeholder_text": "ключ API"
+        }
+      ]
+    },
+    {
+      "type": "QWidget",
+      "layout": "h",
+      "children": [
+        {
+          "type": "QLabel",
+          "text": "Секрет:",
+          "style": "label",
+          "minimum_width": 70
+        },
+        {
+          "id": "input_bybit_secret",
+          "type": "QLineEdit",
+          "style": "input",
+          "placeholder_text": "секретний ключ"
+        }
+      ]
+    },
+    {
+      "type": "QWidget",
+      "layout": "h",
+      "children": [
+        {
+          "id": "chk_show_keys",
+          "type": "QCheckBox",
+          "text": "Показати",
+          "on_toggled": "app.toggle_keys"
+        },
+        {
+          "id": "btn_save_keys",
+          "type": "QPushButton",
+          "text": "Зберегти ключі",
+          "on_clicked": "app.save_keys"
+        }
+      ]
+    },
+    {
+      "id": "keys_status",
+      "type": "QLabel",
+      "text": "",
+      "style": "label",
+      "word_wrap": true
+    },
+
     {
       "type": "QLabel",
       "text": "Торговий режим:"

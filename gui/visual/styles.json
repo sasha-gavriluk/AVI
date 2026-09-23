@@ -1,7 +1,7 @@
 {
-  "app_window": { 
-    "bg": "#11111B", 
-    "fg": "#CDD6F4" 
+  "app_window": {
+    "bg": "#11111B",
+    "fg": "#CDD6F4"
   },
   "panel": {
     "bg": "#1E1E2E",
@@ -9,24 +9,24 @@
     "padding": "20",
     "border": "#313244"
   },
-  "primary": { 
-    "bg": "#89B4FA", 
-    "fg": "#11111B", 
-    "radius": 8, 
-    "padding": "12 24", 
+  "primary": {
+    "bg": "#89B4FA",
+    "fg": "#11111B",
+    "radius": 8,
+    "padding": "12 24",
     "font-weight": "bold",
     "font-size": "14px"
   },
-  "input": { 
-    "bg": "#313244", 
-    "fg": "#CDD6F4", 
-    "radius": 6, 
-    "padding": "8 12", 
+  "input": {
+    "bg": "#313244",
+    "fg": "#CDD6F4",
+    "radius": 6,
+    "padding": "8 12",
     "border": "#45475A",
     "font-size": "13px"
   },
-  "label": { 
-    "fg": "#BAC2DE", 
+  "label": {
+    "fg": "#BAC2DE",
     "font-size": "13px",
     "font-weight": "600"
   },
@@ -42,5 +42,79 @@
   "status_error": {
     "fg": "#F38BA8",
     "font-size": "13px"
+  },
+
+  "section": {
+    "fg": "#7F849C",
+    "font-size": "11px",
+    "font-weight": "bold",
+    "letter-spacing": "1px"
+  },
+  "stat": {
+    "bg": "#1E1E2E",
+    "fg": "#CDD6F4",
+    "radius": 10,
+    "padding": "12 16",
+    "border": "#313244",
+    "font-size": "13px"
+  },
+  "stat_good": {
+    "bg": "#1E1E2E",
+    "fg": "#A6E3A1",
+    "radius": 10,
+    "padding": "12 16",
+    "border": "#313244",
+    "font-size": "13px"
+  },
+  "stat_bad": {
+    "bg": "#1E1E2E",
+    "fg": "#F38BA8",
+    "radius": 10,
+    "padding": "12 16",
+    "border": "#F38BA8",
+    "font-size": "13px"
+  },
+  "badge_idle": {
+    "bg": "#313244",
+    "fg": "#9399B2",
+    "radius": 8,
+    "padding": "10 14",
+    "font-size": "13px",
+    "font-weight": "bold"
+  },
+  "badge_open": {
+    "bg": "#1E3A2E",
+    "fg": "#A6E3A1",
+    "radius": 8,
+    "padding": "10 14",
+    "font-size": "13px",
+    "font-weight": "bold",
+    "border": "#A6E3A1"
+  },
+  "badge_stopped": {
+    "bg": "#3A1E28",
+    "fg": "#F38BA8",
+    "radius": 8,
+    "padding": "10 14",
+    "font-size": "13px",
+    "font-weight": "bold",
+    "border": "#F38BA8"
+  },
+  "danger": {
+    "bg": "#F38BA8",
+    "fg": "#11111B",
+    "radius": 8,
+    "padding": "12 24",
+    "font-weight": "bold",
+    "font-size": "14px"
+  },
+  "log": {
+    "bg": "#181825",
+    "fg": "#A6ADC8",
+    "radius": 8,
+    "padding": "8",
+    "border": "#313244",
+    "font-family": "'Consolas', 'DejaVu Sans Mono', monospace",
+    "font-size": "12px"
   }
 }

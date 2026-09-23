@@ -133,6 +133,30 @@ strategy = Strategy(
         
     @classmethod
     @_handle_error
+    def get_env_path(cls):
+        """
+        Шлях до .env з ключами бірж.
+
+        УВАГА: копія файлу лежить ще й у папці з кодом (Code/.env), але вона
+        СТАРА й нікуди не підключена — Config.py читає саме цю, у теці
+        користувача. Правити треба тільки її, інакше програма далі
+        працюватиме на старих ключах і мовчки отримуватиме відмову біржі.
+        """
+        return os.path.join(cls.get_user_data_dir(), '.env')
+
+    @classmethod
+    @_handle_error
+    def get_trading_state_path(cls):
+        """
+        Шлях до trading_state.json — депозит, від якого рахується просідання.
+
+        Лежить окремо від налаштувань, бо це не налаштування, а ЗАМІР: цифра
+        записується один раз на початку тесту й переживає перезапуски бота.
+        """
+        return os.path.join(cls.get_user_data_dir(), "data", "config", "trading_state.json")
+
+    @classmethod
+    @_handle_error
     def get_settings_path(cls):
         "Шлях до settings.json"
         return os.path.join(cls.get_user_data_dir(), "data", "config", "settings.json")

@@ -1,41 +1,47 @@
 import pandas as pd
 
-from .BlockAContext import MarketRegimeDetector, ConsensusEvaluator, HTFAligner
-from .BlockBState import TrendPhaseDetector, FlatPhaseDetector, RiskMap
-from .BlockCEntry import EntryTriggerValidator, RewardRiskCalculator, InvalidationRules
-from .BlockDRisk import AccountGuard, CorrelationGuard, EventGuard, PositionSizer
-from .BlockEManagement import PositionManager
+from .AccountGuard import AccountGuard
+from .EventGuard import EventGuard
+from .CorrelationGuard import CorrelationGuard
+from .PositionSizer import PositionSizer
+from .PositionManager import PositionManager
 from utils.OtherUtils import _handle_error
 
-#------------------------------
-# Головний контролер рішень
-#------------------------------
+#==============================
+# Двигун прийняття рішень
+#==============================
+#
+# ЩО ЗМІНИЛОСЬ 01.09.2026.
+# Раніше двигун сам вирішував, куди і коли заходити: блоки A (режим ринку),
+# B (фаза) і C (тригер входу) складали рішення з правил. Усе це прибрано —
+# рішення про БІК і ВХІД тепер дає мережа ChronoSeer (Code/models/CS).
+#
+# Двигун лишається тим, чим він насправді цінний: шаром РИЗИКУ.
+# Мережа не знає ні про баланс, ні про плече, ні про новини, ні про те,
+# скільки позицій уже відкрито — усе це рахується тут.
+#
+# Модулі замість блоків: кожен файл відповідає за одну річ і називається
+# за призначенням, а не за місцем у конвеєрі.
+#     AccountGuard      — денний ліміт збитку, сукупний ризик портфеля
+#     EventGuard        — новини
+#     CorrelationGuard  — кілька позицій в один бік
+#     PositionSizer     — розмір, маржа, перевірка ліквідації
+#     PositionManager   — ведення вже відкритої позиції
+#==============================
+
 
 class DecisionEngine:
-    "Пропускає кожну свічку через конвеєр фільтрів. Будь-яке вето зупиняє генерацію сигналу"
+    "Шар ризику: приймає вердикт мережі й вирішує, чи можна й яким розміром торгувати"
 
     #------------------------------
     # Ініціалізація класу
     #------------------------------
 
     def __init__(self):
-        # Блок A — контекст
-        self.regime_detector = MarketRegimeDetector()
-        self.consensus = ConsensusEvaluator()
-        self.htf_aligner = HTFAligner()
-        # Блок B — уточнення стану
-        self.trend_phase = TrendPhaseDetector()
-        self.flat_phase = FlatPhaseDetector()
-        self.risk_map = RiskMap()
-        # Блок C — вхід
-        self.entry_validator = EntryTriggerValidator()
-        self.rr_calculator = RewardRiskCalculator()
-        # Блок D — ризик
         self.account_guard = AccountGuard()
-        self.correlation_guard = CorrelationGuard()
         self.event_guard = EventGuard()
+        self.correlation_guard = CorrelationGuard()
         self.position_sizer = PositionSizer()
-        # Блок E — управління відкритою позицією (викликає той, хто веде позиції)
         self.position_manager = PositionManager()
 
     #------------------------------
@@ -43,7 +49,13 @@ class DecisionEngine:
     #------------------------------
 
     def _default_account_state(self) -> dict:
-        "Базовий стан рахунку. Для реального вето його має вести викликач (бектест/бот)"
+        """
+        Базовий стан рахунку.
+
+        УВАГА: це заглушка для бектесту. Для реальних вето стан має вести
+        викликач — бот або симулятор, — інакше денний ліміт і ризик портфеля
+        не спрацюють ніколи, бо тут завжди нулі.
+        """
         return {
             'daily_loss_pct': 0.0,
             'active_positions': [],
@@ -53,121 +65,77 @@ class DecisionEngine:
         }
 
     #------------------------------
-    # Прогін датафрейму (бектест)
+    # Оцінка одного вердикту мережі
     #------------------------------
 
     @_handle_error
-    def process_dataframe(self, df: pd.DataFrame, account_state: dict = None) -> dict:
-        "Проганяє весь датафрейм через конвеєр і повертає результати по кожному рядку"
+    def evaluate(self, verdict: dict, row: pd.Series, account_state: dict = None) -> dict:
+        """
+        Пропускає вердикт мережі через шар ризику.
+
+        :param verdict: що сказала мережа — {'direction': 'BUY'/'SELL',
+                        'confidence': 0.0-1.0, 'stop_price': ..., 'target_price': ...}
+        :param row: свічка рішення (потрібні ціна й ATR)
+        :param account_state: реальний стан рахунку від бота
+        :return: рішення з розміром позиції або відмова з причиною
+
+        ПОРЯДОК ПЕРЕВІРОК ТУТ ПОПЕРЕДНІЙ і чекає уточнення від господаря.
+        """
         if account_state is None:
             account_state = self._default_account_state()
 
-        n = len(df)
-        signals = ['NEUTRAL'] * n
-        confidences = [0.0] * n
-        reasons = [''] * n
-        market_states = ['UNKNOWN'] * n
-        stops = [None] * n
-        targets = [None] * n
-        rrs = [None] * n
-        liquidations = [None] * n
+        entry_price = row.get('close', 0.0)
+        direction = verdict.get('direction')
+        stop_price = verdict.get('stop_price')
 
-        for i in range(n):
-            row = df.iloc[i]
-            current_price = row.get('close', 0.0)
+        # 1. Новини: якщо поруч важлива подія — не торгуємо взагалі
+        if not self.event_guard.is_safe_to_trade(row.get('timestamp'),
+                                                 account_state.get('news_calendar')):
+            return {'allowed': False, 'reason': 'Заборона через новини'}
 
-            #--- БЛОК D: мета-ризик до всього ---
-            if not self.account_guard.can_trade(account_state):
-                reasons[i] = "Вето: Ліміт збитків / ризик портфеля"
-                continue
+        # 2. Стан рахунку: денний ліміт і ризик портфеля
+        if not self.account_guard.can_trade(account_state):
+            return {'allowed': False, 'reason': 'Заборона захисту рахунку'}
 
-            if not self.event_guard.is_safe_to_trade(row.get('timestamp'), account_state.get('news_calendar')):
-                reasons[i] = "Вето: Небезпечне вікно новин"
-                continue
+        # 3. Кілька позицій в один бік — ріжемо розмір
+        size_multiplier = self.correlation_guard.adjust_size(
+            new_asset=account_state.get('asset', ''),
+            new_direction=direction,
+            active_positions=account_state.get('active_positions', [])
+        )
 
-            #--- БЛОК A: контекст ---
-            votes = self.regime_detector.get_votes(row)
-            consensus_result = self.consensus.evaluate(votes)
-            regime = consensus_result['state']
-            market_states[i] = regime
-
-            if consensus_result['action'] == 'BLOCK_TRADING':
-                reasons[i] = "Вето: Конфлікт радників (Утримання)"
-                continue
-
-            #--- БЛОК B: уточнення стану ---
-            phase = 'UNKNOWN'
-            if regime == 'TREND':
-                phase = self.trend_phase.get_phase(row)
-                if phase == 'EXHAUSTION':
-                    reasons[i] = "Вето: Виснаження тренду"
-                    continue
-            elif regime == 'FLAT':
-                # Межі каналу беремо з Nearest_* — колонок FRS_*_price не існує
-                phase = self.flat_phase.evaluate(
-                    current_price,
-                    row.get('Nearest_Resistance_Price'),
-                    row.get('Nearest_Support_Price')
-                )
-                if phase in ['SQUEEZE', 'CHOPPY']:
-                    reasons[i] = f"Вето: Неторговий флет ({phase})"
-                    continue
-
-            r_map = self.risk_map.build_map(row, current_price)
-
-            #--- БЛОК C: вхід ---
-            trigger, direction = self.entry_validator.check_trigger(row, current_price, regime, phase)
-            if not trigger:
-                reasons[i] = "Немає тригера для входу"
-                continue
-
-            rr_eval = self.rr_calculator.evaluate(current_price, trigger, r_map, direction, row)
-            if not rr_eval['valid']:
-                reasons[i] = rr_eval['reason']
-                continue
-
-            #--- БЛОК D: сайзинг і перевірка ліквідації ---
-            size_mult = self.correlation_guard.adjust_size(
-                row.get('asset', ''), direction, account_state.get('active_positions', [])
-            )
-            sizing = self.position_sizer.calculate(
-                account_state, current_price, rr_eval['stop'], direction, size_mult
-            )
-            if not sizing['valid']:
-                reasons[i] = f"Вето: {sizing['reason']}"
-                continue
-
-            # Пройшли всі фільтри — угода дозволена
-            signals[i] = direction
-            confidences[i] = consensus_result['confidence']
-            stops[i] = rr_eval['stop']
-            targets[i] = rr_eval['target']
-            rrs[i] = rr_eval['rr']
-            liquidations[i] = sizing.get('liquidation_price')
-            reasons[i] = f"Вхід: {trigger}, RR: {rr_eval['rr']:.2f}, Phase: {phase}"
+        # 4. Розмір, маржа й головна перевірка плеча:
+        # стоп МУСИТЬ спрацювати раніше за ліквідацію
+        sizing = self.position_sizer.calculate(
+            account_state=account_state,
+            entry_price=entry_price,
+            stop_price=stop_price,
+            direction=direction,
+            size_multiplier=size_multiplier
+        )
+        if not sizing.get('valid'):
+            return {'allowed': False, 'reason': sizing.get('reason', 'Сайзинг неможливий')}
 
         return {
-            'signal': signals,
-            'confidence': confidences,
-            'block_reason': reasons,
-            'market_state': market_states,
-            'stop': stops,
-            'target': targets,
-            'rr': rrs,
-            'liquidation': liquidations
+            'allowed': True,
+            'direction': direction,
+            'confidence': verdict.get('confidence', 0.0),
+            'entry_price': entry_price,
+            'stop_price': stop_price,
+            'target_price': verdict.get('target_price'),
+            'size_multiplier': size_multiplier,
+            **sizing
         }
 
     #------------------------------
-    # Управління відкритою позицією (Блок E)
+    # Ведення відкритої позиції
     #------------------------------
 
     @_handle_error
-    def manage_position(self, active_trade: dict, row: pd.Series, current_regime: str) -> str:
-        "Викликається на кожній свічці, поки позиція відкрита. Повертає команду управління"
-        self.position_manager.monitor_regime(active_trade, current_regime)
-
-        command = self.position_manager.monitor_thesis(active_trade, row)
-        if command != "HOLD":
-            return command
+    def manage_position(self, active_trade: dict, row: pd.Series) -> str:
+        "Питає в PositionManager, що робити з уже відкритою позицією"
+        thesis = self.position_manager.monitor_thesis(active_trade, row)
+        if thesis != "HOLD":
+            return thesis
 
         return self.position_manager.check_breakeven(active_trade, row.get('close', 0.0))

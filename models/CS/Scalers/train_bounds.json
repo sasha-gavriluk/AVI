@@ -1,0 +1,64 @@
+{
+  "ADAUSDT": {
+    "rows_total": 39741,
+    "rows_train": 31792,
+    "train_end_timestamp": 1780789500000,
+    "raw_data_end": 1787943600000
+  },
+  "AVAXUSDT": {
+    "rows_total": 39741,
+    "rows_train": 31792,
+    "train_end_timestamp": 1780789500000,
+    "raw_data_end": 1787943600000
+  },
+  "BNBUSDT": {
+    "rows_total": 39741,
+    "rows_train": 31792,
+    "train_end_timestamp": 1780789500000,
+    "raw_data_end": 1787943600000
+  },
+  "BTCUSDT": {
+    "rows_total": 39741,
+    "rows_train": 31792,
+    "train_end_timestamp": 1780789500000,
+    "raw_data_end": 1787943600000
+  },
+  "DOGEUSDT": {
+    "rows_total": 39741,
+    "rows_train": 31792,
+    "train_end_timestamp": 1780789500000,
+    "raw_data_end": 1787943600000
+  },
+  "DOTUSDT": {
+    "rows_total": 39741,
+    "rows_train": 31792,
+    "train_end_timestamp": 1780789500000,
+    "raw_data_end": 1787943600000
+  },
+  "ETHUSDT": {
+    "rows_total": 39741,
+    "rows_train": 31792,
+    "train_end_timestamp": 1780789500000,
+    "raw_data_end": 1787943600000
+  },
+  "LINKUSDT": {
+    "rows_total": 39741,
+    "rows_train": 31792,
+    "train_end_timestamp": 1780789500000,
+    "raw_data_end": 1787943600000
+  },
+  "SOLUSDT": {
+    "rows_total": 39741,
+    "rows_train": 31792,
+    "train_end_timestamp": 1780789500000,
+    "raw_data_end": 1787943600000
+  },
+  "XRPUSDT": {
+    "rows_total": 39741,
+    "rows_train": 31792,
+    "train_end_timestamp": 1780789500000,
+    "raw_data_end": 1787943600000
+  },
+  "_note": "Межа навчальної частини, зафіксована 31.08.2026 перед доливанням свіжих даних. Нормалізатор мусить учитись РІВНО на рядках із timestamp <= межа_timestamp, інакше при кожному доливанні масштаб фічей мінявся б і модель бачила б інші числа.",
+  "_fresh": "Усе, що новіше за кінець_старих_даних, завантажено 31.08.2026 і НЕ могло потрапити ні в навчання, ні в перевірку, ні в тест. Саме на цьому відрізку робляться стрес-тести управління капіталом."
+}

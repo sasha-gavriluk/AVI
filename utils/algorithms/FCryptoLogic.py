@@ -1,113 +1,207 @@
 import pandas as pd
-from models.FFB.FFB import FFB
-from models.FRS.FRS import FRS
-from models.FMR.FMR import FMR
-from .brain.DecisionEngine import DecisionEngine
 
-#------------------------------
+from utils.OtherUtils import _handle_error
+from utils.algorithms.ChronoSeerService import ChronoSeerService
+from utils.algorithms.brain.DecisionEngine import DecisionEngine
+from utils.algorithms.brain.AccountState import AccountState
+from utils.algorithms.brain.PositionKeeper import PositionKeeper
+from utils.algorithms.brain.TradeJournal import TradeJournal
+from utils.algorithms.brain.OrderExecutor import OrderExecutor
+
+#==============================
 # Точка входу крипто-логіки
-#------------------------------
+#==============================
+#
+# ЩО ЗМІНИЛОСЬ 01.09.2026. Раніше цей клас готував дані й віддавав їх у
+# конвеєр правил, який сам вирішував, куди заходити. Конвеєр прибрано.
+#
+# Тепер ланцюг такий:
+#
+#   ChronoSeerService  — збирає сет, зберігає в базу, питає мережу
+#          ↓  вердикт: бік, впевненість, стоп, ціль
+#   DecisionEngine     — шар ризику: новини, стан рахунку, кореляція, сайзинг
+#          ↓  дозвіл із розміром позиції
+#   PositionKeeper     — відкриває угоду й веде її до закриття
+#
+# Мережа відповідає за «куди», конвеєр — за «чи можна й скільки».
+#==============================
+
 
 class FCryptoLogic:
-    "Обгортка над конвеєром DecisionEngine (brain/): готує дані й віддає торгове рішення"
+    "Зв'язує мережу, шар ризику й ведення позицій в один ланцюг"
+
+    #------------------------------
+    # Constants (Можна змінювати)
+    #------------------------------
+
+    # Який горизонт слухаємо. На бойових тестах 31.08 п'ятнадцятисвічковий
+    # дав найбільше грошей у вибірковому режимі, п'ятдесятисвічковий — те саме
+    # меншою кількістю угод.
+    HORIZON = 15
+
+    # Нижче цієї впевненості вхід не розглядається. Заміряно на 117 750
+    # рішеннях: кошик 50-55% дає 34.8% плюсових угод, кошик 80%+ дає 60.9%.
+    MIN_CONFIDENCE = 0.70
+
+    MAX_POSITIONS = 1
 
     #------------------------------
     # Ініціалізація класу
     #------------------------------
 
-    # Крипто-моделі вантажимо ОДИН раз на весь клас (кеш)
-    _fmr = None
-    _ffb = None
-    _frs = None
+    def __init__(self, pair: str, account: AccountState = None, db=None,
+                 engine: DecisionEngine = None, journal: TradeJournal = None,
+                 keeper: PositionKeeper = None, executor: OrderExecutor = None,
+                 service: ChronoSeerService = None):
+        """
+        :param pair: 'SOLUSDT'
+        :param account: стан рахунку. None — створити свій зі $150
+        :param db: менеджер бази для ChronoSeerService
 
-    def __init__(self, df: pd.DataFrame):
-        "Моделі підвантажуються один раз (кеш класу), далі беруться з кешу"
-        if FCryptoLogic._ffb is None:
-            FCryptoLogic._fmr = FMR()
-            FCryptoLogic._ffb = FFB()
-            FCryptoLogic._frs = FRS()
+        ЧОМУ РЕШТА ПАРАМЕТРІВ ЗОВНІШНІ. Коли кожна пара створює собі власний
+        рахунок і власного доглядача, вони одна про одну не знають — і
+        CorrelationGuard не бачить, що на всіх монетах уже відкрито в один бік.
+        Заміряно 01.09.2026: п'ять монет дали BUY одночасно, і кожна зайшла б
+        повним розміром. Тому TradeRunner створює це один раз і роздає всім.
 
-        self.mr = FCryptoLogic._fmr
-        self.fb = FCryptoLogic._ffb
-        self.rs = FCryptoLogic._frs
-
-        self.df_processed = df.copy()
-
-        # Двигун прийняття рішень (блоки A-E)
-        self.engine = DecisionEngine()
-
-    #==============================
-    # Вхідні дані (Data Enrichment)
-    #==============================
-
-    #------------------------------
-    # Збагачення датасету
-    #------------------------------
-
-    def _enrich_data(self) -> pd.DataFrame:
-        "Єдиний метод, який готує всі дані: індикатори, патерни, мережі, рівні"
-        from utils.algorithms.indicators.DataProcessingManager import DataProcessingManager
-
-        # Тех. аналіз, патерни та алгоритми
-        dpm = DataProcessingManager(data=self.df_processed)
-        self.df_processed = dpm.process_all()
-
-        # Послідовно пропускаємо через усі мережі
-        self.df_processed = self.mr.process(self.df_processed)
-        self.df_processed = self.rs.process(self.df_processed)
-        self.df_processed = self.fb.process(self.df_processed)
-
-        return self.df_processed
-
-    #==============================
-    # Головний метод обробки (Main)
-    #==============================
+        Поодинці клас теж працює: чого не передали — створить сам.
+        """
+        self.pair = pair
+        self.account = account or AccountState()
+        self.service = service or ChronoSeerService(db=db)
+        self.engine = engine or DecisionEngine()
+        # Журнал пише кожну угоду в базу ОДРАЗУ — і при відкритті, і при закритті
+        self.journal = journal or TradeJournal(db=db)
+        self.keeper = keeper or PositionKeeper(self.account, self.engine,
+                                               journal=self.journal)
+        # Без біржі виконавець працює в папері, але шлях і перевірки ті самі
+        self.executor = executor or OrderExecutor()
 
     #------------------------------
-    # Отримання сигналу
+    # Головний метод обробки
     #------------------------------
 
-    def process(self) -> dict:
-        "Готує дані, проганяє через конвеєр і віддає рішення для останньої свічки"
-        # 1. Готуємо всі дані (індикатори, НН, рівні)
-        self.df_processed = self._enrich_data()
+    @_handle_error
+    def process(self, df: pd.DataFrame = None, dry_run: bool = False) -> dict:
+        """
+        Один крок на новій свічці: провести відкриті позиції, спитати мережу,
+        пропустити крізь ризик і, якщо все дозволено, відкрити угоду.
 
-        # 2. Пропускаємо через конвеєр жорстких фільтрів (DecisionEngine)
-        results = self.engine.process_dataframe(self.df_processed)
-
-        # 3. Записуємо результати назад у датафрейм (потрібно бектесту)
-        self.df_processed['Logic_Signal'] = results['signal']
-        self.df_processed['Logic_Confidence'] = results['confidence']
-        self.df_processed['Logic_BlockReason'] = results['block_reason']
-        self.df_processed['Logic_MarketState'] = results['market_state']
-        self.df_processed['Logic_Stop'] = results['stop']
-        self.df_processed['Logic_Target'] = results['target']
-        self.df_processed['Logic_RR'] = results['rr']
-        self.df_processed['Logic_Liquidation'] = results['liquidation']
-
-        # 4. Формуємо словник для останньої свічки (жива торгівля / GUI)
-        last_idx = -1
-        last_row = self.df_processed.iloc[last_idx]
-
-        return {
-            "signal": results['signal'][last_idx],
-            "confidence": round(results['confidence'][last_idx], 3),
-            "block_reason": results['block_reason'][last_idx],
-            "market_state": results['market_state'][last_idx],
-
-            # Параметри угоди від конвеєра (потрібні бектесту й ризик-менеджменту)
-            "stop_price": results['stop'][last_idx],
-            "take_profit_price": results['target'][last_idx],
-            "risk_reward_ratio": results['rr'][last_idx],
-            "liquidation_price": results['liquidation'][last_idx],
-
-            # Рівні беремо з Nearest_* — колонок FRS_*_price не існує
-            "support_price": last_row.get('Nearest_Support_Price'),
-            "resistance_price": last_row.get('Nearest_Resistance_Price'),
-
-            # Legacy-поля для сумісності зі старими інтерфейсами виводу
-            "active_triggers": 1 if results['signal'][last_idx] != 'NEUTRAL' else 0,
-            "counter_trend_penalty": 0.0,
-            "confluence_families": [],
-            "active_signals": []
+        :param df: свіжі свічки. None — узяти з бази
+        :param dry_run: True — тільки показати рішення, НЕ відкривати позицію
+                        і не чіпати відкриті. Саме цей режим потрібен інтерфейсу:
+                        він лише малює картку сигналу, а торгувати не має права.
+        :return: словник стану для GUI й бектесту
+        """
+        result = {
+            'pair': self.pair,
+            'signal': 'NEUTRAL',
+            'confidence': 0.0,
+            'block_reason': '',
+            'account': self.account.report(),
+            'events': [],
         }
+
+        # Годинник пускаємо ДО мережі. Збірка фічей коштує близько чотирьох
+        # секунд, і це теж запізнення — сторож має його бачити.
+        intent = None if dry_run else self.executor.begin()
+
+        # 1. Мережа. Вона ж оновить сет у базі.
+        verdict = self.service.process(self.pair, df_15m=df)
+        no_verdict = verdict is None or 'horizons' not in verdict
+        if no_verdict:
+            result['block_reason'] = 'Мережа не дала вердикту'
+            return result
+
+        candle = pd.Series({
+            'close': verdict['price'],
+            'high': verdict['price'],
+            'low': verdict['price'],
+            'timestamp': verdict['timestamp'],
+            'ATR_14': verdict['atr_pct'],
+        })
+        if df is not None and not df.empty:
+            candle = df.iloc[-1]
+
+        # 2. Провести вже відкриті позиції через цю свічку.
+        # У режимі перегляду не чіпаємо нічого: інтерфейс може оновлюватись
+        # довільно часто, і кожне оновлення двигало б позиції на крок уперед.
+        if not dry_run:
+            result['events'] = self.keeper.on_candle(candle, self.pair)
+
+        h = verdict['horizons'].get(self.HORIZON)
+        if h is None:
+            result['block_reason'] = f'Немає горизонту {self.HORIZON}'
+            return result
+
+        result['confidence'] = round(h['confidence'], 3)
+        result['horizons'] = verdict['horizons']
+
+        # 3. Рубильник і місце під нову позицію
+        if self.account.check_kill_switch():
+            result['block_reason'] = self.account.stop_reason
+            return result
+
+        if not self.keeper.has_room(self.MAX_POSITIONS, self.pair):
+            # Дві різні причини, і плутати їх шкідливо: перша каже «ця монета
+            # зайнята», друга — «рахунок повний». У журналі такту видно, чи
+            # стеля справді тримає, чи ми просто товчемось на одній монеті.
+            busy = any(p.get('pair') == self.pair for p in self.account.positions)
+            result['block_reason'] = ('Позиція на цій монеті вже відкрита' if busy
+                                      else f'Стеля позицій вичерпана ({self.MAX_POSITIONS})')
+            return result
+
+        # 4. Поріг впевненості
+        if h['confidence'] < self.MIN_CONFIDENCE:
+            result['block_reason'] = (f"Впевненість {h['confidence']*100:.1f}% "
+                                         f"нижча за поріг {self.MIN_CONFIDENCE*100:.0f}%")
+            return result
+
+        # 5. Шар ризику
+        decision = self.engine.evaluate(
+            verdict={'direction': h['direction'], 'confidence': h['confidence'],
+                     'stop_price': h['stop_price'], 'target_price': h['target_price']},
+            row=candle,
+            account_state={**self.account.as_dict(), 'asset': self.pair}
+        )
+        if not decision or not decision.get('allowed'):
+            result['block_reason'] = (decision or {}).get('reason', 'Відмова шару ризику')
+            return result
+
+        # 6. Ордер. Сторож може скасувати його вже після всіх дозволів —
+        # якщо ціна пішла проти нас або ми надто довго думали.
+        decision['horizon'] = self.HORIZON
+        result.update({
+            'signal': h['direction'],
+            'stop_price': decision['stop_price'],
+            'take_profit_price': decision.get('target_price'),
+            'liquidation_price': decision.get('liquidation_price'),
+            'dry_run': dry_run,
+        })
+
+        if dry_run:
+            result['account'] = self.account.report()
+            return result
+
+        self.executor.aim(intent, verdict['price'], h['direction'])
+        fill = self.executor.place(intent, decision, self.pair)
+        if not fill or not fill.get('filled'):
+            result['signal'] = 'NEUTRAL'
+            result['block_reason'] = (fill or {}).get('reason', 'Ордер не виконано')
+            result['account'] = self.account.report()
+            return result
+
+        # Заходимо за ціною ВИКОНАННЯ, а не за ціною рішення
+        decision['entry_price'] = fill['price']
+
+        # 7. Записуємо позицію
+        trade = self.keeper.open(decision, self.pair, verdict['timestamp'])
+        result.update({
+            'entry_price': fill['price'],
+            'delay_sec': fill.get('delay_sec'),
+            'slip_pct': fill.get('slip_pct'),
+            'order_id': fill.get('order_id'),
+            'trade_id': trade['id'] if trade else None,
+            'account': self.account.report(),
+        })
+        return result

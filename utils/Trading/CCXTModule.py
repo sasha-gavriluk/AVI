@@ -25,7 +25,26 @@ class CCXTModule:
             
         opts = {}
         if exid == "bybit":
-            opts = {"defaultType": "swap", "recvWindow": 10000}
+            opts = {
+                "defaultType": "swap",
+                "recvWindow": 10000,
+
+                # ЧОМУ ТИП РАХУНКУ ЗАДАНО НАПЕРЕД.
+                #
+                # Перед set_leverage і ще кількома приватними викликами ccxt
+                # сам іде питати /user/v3/private/query-api — «а рахунок
+                # уніфікований?». Той службовий ендпоінт вимагає від ключа прав
+                # на переказ або вивід коштів, яких у торгового ключа немає
+                # й не має бути. Через це плече не ставилось узагалі:
+                # retCode 10005, Permission denied.
+                #
+                # Якщо ці два прапорці вже виставлені, ccxt питати не йде
+                # (див. bybit.is_unified_enabled). Рахунок у нас уніфікований —
+                # це те саме UNIFIED, з яким читається баланс.
+                "enableUnifiedAccount": True,
+                "enableUnifiedMargin": False,
+                "unifiedMarginStatus": 6,
+            }
             
         self.exchange = getattr(ccxt, exid)({
             "options": opts,
@@ -62,11 +81,37 @@ class CCXTModule:
     
     @_handle_error
     def _get_market_symbol(self, symbol: str, params={}):
-        "Перетворює стандартний символ у біржовий, якщо потрібно (Bybit/linear -> ':USDT')."
+        """
+        Перетворює стандартний символ у біржовий (Bybit/linear -> ':USDT').
+
+        ЩО ЗМІНИЛОСЬ 02.09.2026. Раніше перетворення робилось лише тоді, коли
+        в символі вже була скісна риска: 'BTC/USDT' -> 'BTC/USDT:USDT'. А в
+        інтерфейсі й у базі активи записані без риски — 'BTCUSDT', — і такий
+        символ ішов на біржу як є. Для свічок це минало (ccxt знаходить ринок
+        за біржовим ідентифікатором), а от ордер на безстроковому ринку
+        Bybit за таким символом поставити не можна.
+        """
         if self.exchange_name == 'bybit' and params.get('category', 'linear') == 'linear':
-            if ':' not in symbol and 'USDT' in symbol and '/' in symbol:
+            if ':' in symbol:
+                return symbol
+            if '/' in symbol and 'USDT' in symbol:
                 return f"{symbol}:USDT"
+            if symbol.endswith('USDT'):
+                return f"{symbol[:-4]}/USDT:USDT"
         return symbol
+
+    @_handle_error
+    def amount_to_precision(self, symbol: str, amount: float):
+        """
+        Округлює обсяг до кроку, який приймає біржа.
+
+        Без цього ордер на 0.0123456789 монети відхиляється або мовчки
+        обрізається — біржа має свій крок обсягу на кожному активі.
+        """
+        market_symbol = self._get_market_symbol(symbol, {'category': 'linear'})
+        if not self.exchange.markets:
+            self.exchange.load_markets()
+        return float(self.exchange.amount_to_precision(market_symbol, amount))
 
     # ----------------------------------
     # Отримання балансу
@@ -89,9 +134,30 @@ class CCXTModule:
         
     @_handle_error
     def get_usdt_balance(self) -> float:
+        "Вільні USDT — те, чим можна відкрити НОВУ позицію"
         balance_data = self.fetch_balance()
         usdt_info = balance_data.get('free', {})
         return float(usdt_info.get('USDT', 0.0))
+
+    @_handle_error
+    def get_usdt_equity(self) -> float:
+        """
+        Увесь рахунок разом із тим, що замкнене у відкритій позиції.
+
+        РІЗНИЦЯ З get_usdt_balance ВАЖЛИВА ДЛЯ ПРОСІДАННЯ. Вільний баланс
+        падає вже в мить відкриття угоди — застава просто переїхала в позицію,
+        а не зникла. Міряти просідання по ньому означає рахувати кожну відкриту
+        угоду як збиток: при заставі 10% рубильник на 20% спрацював би на
+        половині шляху, ще до жодної реальної втрати.
+        """
+        balance_data = self.fetch_balance()
+        total = float((balance_data.get('total') or {}).get('USDT') or 0.0)
+        if total:
+            return total
+        # Деякі біржі не віддають total — тоді складаємо самі
+        free = float((balance_data.get('free') or {}).get('USDT') or 0.0)
+        used = float((balance_data.get('used') or {}).get('USDT') or 0.0)
+        return free + used
 
     # ----------------------------------
     # Отримання поточних цін (тикерів)
@@ -173,6 +239,56 @@ class CCXTModule:
         return order
 
     @_handle_error
+    def max_leverage(self, symbol: str):
+        """
+        Найбільше плече, яке біржа дозволяє на цьому активі.
+
+        Дані публічні, лежать у описі ринку — питати біржу окремо не треба.
+        Станом на 02.09.2026: ADA/DOGE/LINK/DOT/AVAX/BNB до 75, SOL/XRP до 100,
+        BTC/ETH до 150, крок 0.01. Тобто 20 доступне скрізь, і якщо його не
+        вдалось поставити — річ не в активі.
+
+        :return: число або None, якщо ринок невідомий
+        """
+        if not self.exchange.markets:
+            self.exchange.load_markets()
+
+        market_symbol = self._get_market_symbol(symbol, {'category': 'linear'})
+        market = self.exchange.markets.get(market_symbol)
+        if not market:
+            return None
+
+        limits = (market.get('limits') or {}).get('leverage') or {}
+        return float(limits['max']) if limits.get('max') else None
+
+    @_handle_error
+    def fetch_leverage(self, symbol: str, params={}):
+        """
+        Яке плече СПРАВДІ стоїть на активі просто зараз.
+
+        Потрібне тому, що прохання поставити плече може не пройти — біржа
+        відмовить через права ключа або обмеження активу. Мовчки вважати, що
+        стоїть бажане, не можна: з плеча рахується обсяг позиції, і помилка
+        вдвічі тут означає вдвічі більшу заставу, ніж домовлено.
+
+        Дивимось у список позицій, не фільтруючи за розміром: Bybit віддає
+        рядок з плечем навіть тоді, коли позиція нульова.
+
+        :return: число або None, якщо дізнатись не вдалось
+        """
+        params = params.copy()
+        if self.exchange_name == 'bybit':
+            params.update({'category': 'linear'})
+
+        market_symbol = self._get_market_symbol(symbol, params)
+        rows = self.exchange.fetch_positions(symbols=[market_symbol], params=params)
+        for row in rows or []:
+            leverage = row.get('leverage') or (row.get('info') or {}).get('leverage')
+            if leverage:
+                return float(leverage)
+        return None
+
+    @_handle_error
     def fetch_positions(self, symbols: list, params={}):
         if not self.exchange.has.get('fetchPositions'):
             return {}
@@ -193,6 +309,35 @@ class CCXTModule:
                 std_symbol = symbol_map.get(market_symbol, market_symbol)
                 result[std_symbol] = pos
         return result
+
+    @_handle_error
+    def fetch_closed_position(self, symbol: str, since: int = None, params={}):
+        """
+        Остання ЗАКРИТА позиція по активу разом із реалізованим прибутком.
+
+        Потрібна тому, що стоп і тейк спрацьовують на біржі без нашої участі:
+        ми лише бачимо, що позиції більше немає, а чим вона скінчилась —
+        знає тільки біржа. У Bybit це окремий журнал закритих позицій
+        (closed-pnl), а не список угод.
+
+        :param since: мітка в мілісекундах, раніше за яку не дивимось
+        :return: структура позиції або None
+        """
+        if not self.exchange.has.get('fetchPositionsHistory'):
+            return None
+
+        params = params.copy()
+        if self.exchange_name == 'bybit':
+            params.update({'category': 'linear'})
+
+        market_symbol = self._get_market_symbol(symbol, params)
+        rows = self.exchange.fetch_positions_history(
+            [market_symbol], since=since, limit=20, params=params)
+        if not rows:
+            return None
+
+        # Найсвіжіша за часом закриття
+        return sorted(rows, key=lambda r: r.get('timestamp') or 0)[-1]
 
     @_handle_error
     def close_position(self, symbol: str, params={}):

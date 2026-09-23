@@ -178,17 +178,18 @@ class SignalCard(QFrame):
 
         reason = data.get("block_reason")
         if not reason:
-            if signal in ["BUY", "SELL"]:
-                # Якщо FCryptoLogic віддає перелік спрацьованих тригерів — показуємо їх
-                fired = data.get("active_signals")
-                if fired:
-                    parts = [f"{s.get('name')} (вага {s.get('weight')}→{s.get('contribution')})" for s in fired]
-                    reason = " | ".join(parts)
-                else:
-                    # Інакше — чесний мінімум із наявних полів (без вигаданих "Ідеальних умов")
-                    state = data.get("market_state", "")
-                    triggers = data.get("active_triggers", 0)
-                    reason = f"{state} · тригерів: {triggers} · {int(conf * 100)}%"
+            # Показуємо, що сказала мережа на КОЖНОМУ горизонті. Раніше тут малювались
+            # active_signals і active_triggers — залишки від конвеєра правил, які з
+            # серпня заповнювались пустишками й нічого не означали.
+            horizons = data.get("horizons") or {}
+            if horizons:
+                parts = []
+                for bars in sorted(horizons):
+                    h = horizons[bars]
+                    parts.append(f"{bars}св {h.get('direction')} {int(h.get('confidence', 0) * 100)}%")
+                reason = " · ".join(parts)
+            elif signal in ["BUY", "SELL"]:
+                reason = f"{signal} · впевненість {int(conf * 100)}%"
             else:
                 reason = "Очікування сигналу"
 

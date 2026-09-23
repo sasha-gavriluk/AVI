@@ -332,20 +332,20 @@ class AlgorithmProcessor:
         :param resistance_counts: розміри кластерів опору з _cluster_levels(return_counts=True)
         :param support_counts: те саме для підтримок
         """
-        def відібрати(кластери, розміри):
-            кластери = pd.Series(кластери).reset_index(drop=True)
-            if кластери.empty:
+        def pick(clusters, sizes):
+            clusters = pd.Series(clusters).reset_index(drop=True)
+            if clusters.empty:
                 return pd.Index([])
-            if розміри is None:
+            if sizes is None:
                 # Запасний шлях, якщо розміри не передали: рахуємо повтори однакових
                 # значень. Після усереднення в _cluster_levels кожне значення унікальне,
                 # тож цей шлях нічого не відбере — див. журнал змін унизу файлу.
-                розміри = кластери.map(кластери.value_counts())
-            розміри = pd.Series(розміри).reset_index(drop=True)
-            return pd.Index(кластери[розміри.values >= methods_count])
+                sizes = clusters.map(clusters.value_counts())
+            sizes = pd.Series(sizes).reset_index(drop=True)
+            return pd.Index(clusters[sizes.values >= methods_count])
 
-        return (відібрати(resistance_clusters, resistance_counts),
-                відібрати(support_clusters, support_counts))
+        return (pick(resistance_clusters, resistance_counts),
+                pick(support_clusters, support_counts))
     
     #------------------------------
     # Виявлення Market Structure

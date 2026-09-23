@@ -15,7 +15,6 @@ from utils.GapAnalyzer import GapAnalyzer
 
 from gui.visual.widgets.SignalCard import SignalCard
 from gui.visual.widgets.FlowLayout import FlowLayout
-from utils.algorithms.FCryptoLogic import FCryptoLogic
 
 import utils.Config as app_config
 
@@ -191,68 +190,80 @@ class DataFetcherWorker(QThread):
                                     
                             time.sleep(self.logic.ccxt.exchange.rateLimit / 1000.0)
 
-class SignalsWorker(QThread):
-    result_ready = pyqtSignal(str, dict)
-    finished_calc = pyqtSignal()
-    
-    def __init__(self, assets_list, timeframe, market_type):
+#==============================
+# Потік живої торгівлі
+#==============================
+#
+# Тримає TradeRunner і віддає його стан інтерфейсу сигналами Qt. Уся робота —
+# біржа, фічі, мережа, ордер — відбувається ТУТ, у фоновому потоці, бо один
+# такт коштує десятки секунд і головний потік на цей час просто завмер би.
+#
+# ЧОМУ ОДНА БАЗА НА ВСІХ. DataBaseManager тримає з'єднання DuckDB у спільному
+# реєстрі за шляхом до файлу: скільки б менеджерів не створили, з'єднання
+# лишається одне, а звернення до нього серіалізує спільний замок. Тому цей
+# потік створює свій менеджер спокійно — новий файл не відкривається.
+#
+# Раніше на цьому місці був SignalsWorker: він на кожне оновлення інтерфейсу
+# створював FCryptoLogic для кожного активу й годував мережу сирими свічками
+# ТОГО таймфрейму, який обрано в інтерфейсі. Для мережі, навченої на 15м,
+# це були просто інші дані. Прибрано 02.09.2026.
+#==============================
+
+class TradingWorker(QThread):
+    state_ready = pyqtSignal(dict)
+    log_line = pyqtSignal(str)
+    finished_run = pyqtSignal(str)
+
+    def __init__(self, pairs, live=False, paper_balance=150.0, new_test=False):
+        """
+        :param pairs: ['BTCUSDT', ...]
+        :param live: True — справжні ордери на біржі
+        :param new_test: True — почати новий відлік просідання
+        """
         super().__init__()
-        self.assets = assets_list
-        self.timeframe = timeframe
-        self.market = market_type
-        self.is_running = True
-        
+        self.pairs = list(pairs)
+        self.live = bool(live)
+        self.paper_balance = float(paper_balance)
+        self.new_test = bool(new_test)
+        self.runner = None
+
     @_handle_error
     def run(self):
         try:
-            from utils.DataBaseManager import DataBaseManager
+            from utils.algorithms.TradeRunner import TradeRunner
+
             db = DataBaseManager(use_default=True)
-            tables_df = db.conn.execute("SHOW TABLES;").df()
-            available_tables = tables_df['name'].tolist()
-            
-            for asset in self.assets:
-                if not self.is_running:
-                    break
-                    
-                base_name = asset.replace(':', '').replace('/', '_')
-                table_name = f"{base_name}_{self.timeframe}"
-                alt_name_1 = f"{base_name.replace('_', '')}_{self.timeframe}"
-                
-                actual_table = None
-                if table_name in available_tables:
-                    actual_table = table_name
-                elif alt_name_1 in available_tables:
-                    actual_table = alt_name_1
-                elif f"{base_name[:3]}_{base_name[3:]}_{self.timeframe}" in available_tables:
-                    actual_table = f"{base_name[:3]}_{base_name[3:]}_{self.timeframe}"
-                    
-                signal_data = {"error": "Таблиця не знайдена в БД"}
-                if actual_table:
-                    # Мережам FMR/FFB потрібно рівно 1000 свічок (seq_len). Беремо 1500:
-                    # 1000 на вікно НН + запас на прогрів зон RS та EMA. Менше 1000 —
-                    # FMR/FFB повертають нулі, і сигнал стає фікцією.
-                    df = db.get_data_by_number_range(actual_table, 1500)
-                    if df is not None and not df.empty:
-                        df = df.sort_values(by='timestamp', ascending=True).reset_index(drop=True)
-                        if self.market == "Crypto":
-                            from utils.algorithms.FCryptoLogic import FCryptoLogic
-                            logic_alg = FCryptoLogic(df)
-                            signal_data = logic_alg.process()
-                        else:
-                            from utils.algorithms.BOForexLogic import BOForexLogic
-                            logic_alg = BOForexLogic(df)
-                            signal_data = logic_alg.process()
-                    else:
-                        signal_data = {"error": "Немає даних для аналізу"}
-                
-                self.result_ready.emit(asset, signal_data)
-                
-            db.disconnect()
+
+            exchange = None
+            if app_config.has_bybit_keys():
+                exchange = CCXTModule("bybit", db)
+                exchange.connect(app_config.bybit_key, app_config.bybit_secret_key)
+            else:
+                self.log_line.emit("Ключі Bybit не задані — працюємо на тому, що в базі")
+
+            self.runner = TradeRunner(
+                pairs=self.pairs,
+                db=db,
+                exchange=exchange,
+                live=self.live,
+                paper_balance=self.paper_balance,
+                new_test=self.new_test,
+                on_state=self.state_ready.emit,
+                on_log=self.log_line.emit,
+            )
+            self.runner.run()
+            self.finished_run.emit(self.runner.account.report())
+
         except Exception as e:
             import traceback
             traceback.print_exc()
-        finally:
-            self.finished_calc.emit()
+            self.finished_run.emit(f"Помилка: {e}")
+
+    @_handle_error
+    def stop(self):
+        "Просить цикл завершитись. Поточний такт дороблюється до кінця"
+        if self.runner:
+            self.runner.stop()
 
 class AppLogic:
     def __init__(self):
@@ -260,11 +271,21 @@ class AppLogic:
         engine.bind("app.mode_changed", self.on_mode_changed)
         engine.bind("app.market_changed", self.on_market_changed)
         engine.bind("app.open_assets_dialog", self.open_assets_dialog)
-        
+        engine.bind("app.save_keys", self.on_save_keys)
+        engine.bind("app.toggle_keys", self.on_toggle_keys)
+        engine.bind("trades.toggle", self.on_toggle_trading)
+
         self.is_running = False
         self.worker = None
-        self.signals_worker = None
+        self.trading_worker = None
         self.signal_cards = {}
+
+        # Живий режим підтверджується руками один раз за запуск програми.
+        # Далі в межах сесії кнопка стартує без питань
+        self.live_confirmed = False
+
+        # Чи забути записаний депозит і почати відлік просідання заново
+        self.new_test = False
 
         # Старші таймфрейми для HTF-контексту. Качаються завжди разом із робочим,
         # інакше система не бачить, чи локальний рух — тренд, чи відскок у ведмежому ринку.
@@ -301,9 +322,94 @@ class AppLogic:
         if input_assets and not input_assets.text().strip():
             # Задаємо активи за замовчуванням
             input_assets.setText("BTCUSDT, ETHUSDT, BNBUSDT")
-            
+
+        self.init_keys_ui()
         self.update_signals_ui()
-        
+
+        # Рядок режиму на вкладці «Угоди» має бути чесним ще до старту:
+        # з ключами кнопка поведе на біржу, без них — лише порахує
+        mode = engine.get("trades_mode")
+        if mode:
+            mode.setText("Ключі є — старт поведе на біржу" if app_config.has_bybit_keys()
+                         else "Ключів немає — ордери не ставитимуться")
+
+    #------------------------------
+    # Ключі Bybit
+    #------------------------------
+
+    @_handle_error
+    def init_keys_ui(self):
+        """
+        Підставляє збережені ключі в поля.
+
+        Секрет одразу ховається крапками: поле лишається робочим, але ключ
+        не світиться на екрані й не потрапляє на випадковий знімок.
+        """
+        from PyQt6.QtWidgets import QLineEdit
+
+        field_key = engine.get("input_bybit_key")
+        field_secret = engine.get("input_bybit_secret")
+        status = engine.get("keys_status")
+
+        if field_secret:
+            field_secret.setEchoMode(QLineEdit.EchoMode.Password)
+        if field_key:
+            field_key.setEchoMode(QLineEdit.EchoMode.Password)
+
+        if app_config.bybit_key and field_key:
+            field_key.setText(app_config.bybit_key)
+        if app_config.bybit_secret_key and field_secret:
+            field_secret.setText(app_config.bybit_secret_key)
+
+        if status:
+            if app_config.has_bybit_keys():
+                status.setText("Ключі збережено.")
+                engine._apply_style(status, "status_ok")
+            else:
+                status.setText("Ключів немає — торгівля працюватиме лише на даних із бази.")
+                engine._apply_style(status, "status_error")
+
+    @_handle_error
+    def on_toggle_keys(self, checked=False):
+        "Галочка «Показати» — знімає крапки з обох полів"
+        from PyQt6.QtWidgets import QLineEdit
+
+        mode = QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
+        for name in ("input_bybit_key", "input_bybit_secret"):
+            field = engine.get(name)
+            if field:
+                field.setEchoMode(mode)
+
+    @_handle_error
+    def on_save_keys(self):
+        """
+        Пише ключі в .env теки користувача — той самий файл, який читає Config.
+
+        Порожнє поле означає «не чіпати», а не «стерти»: інакше випадкове
+        очищення поля тихо позбавило б програму єдиної копії ключа.
+        """
+        field_key = engine.get("input_bybit_key")
+        field_secret = engine.get("input_bybit_secret")
+        status = engine.get("keys_status")
+
+        key = field_key.text().strip() if field_key else ''
+        secret = field_secret.text().strip() if field_secret else ''
+
+        if not key and not secret:
+            if status:
+                status.setText("Обидва поля порожні — нічого не змінено.")
+                engine._apply_style(status, "status_error")
+            return
+
+        saved = app_config.save_bybit_keys(key, secret)
+        if status:
+            if saved:
+                status.setText("Ключі збережено. Резервна копія — .env.backup")
+                engine._apply_style(status, "status_ok")
+            else:
+                status.setText("Не вдалось записати ключі.")
+                engine._apply_style(status, "status_error")
+
     @_handle_error
     def on_mode_changed(self, checked=False):
         rb_futures = engine.get("rb_futures")
@@ -425,7 +531,6 @@ class AppLogic:
     def on_start(self):
         btn_start = engine.get("btn_start")
         status_label = engine.get("status_label")
-        signals_log = engine.get("signals_log")
         main_window = engine.get("main_window")
         
         if self.is_running:
@@ -436,8 +541,6 @@ class AppLogic:
                 btn_start.setStyleSheet("") 
             if status_label:
                 status_label.setText("Процес зупинено.")
-            if signals_log:
-                signals_log.append("Процес перервано користувачем.")
             return
             
         # ЗАПУСК
@@ -570,83 +673,313 @@ class AppLogic:
             btn_start.setText("🚀 Запустити Термінал")
             btn_start.setStyleSheet("")
 
+    #------------------------------
+    # Картки активів на вкладці «Угоди»
+    #------------------------------
+
     @_handle_error
     def update_signals_ui(self):
-        signals_placeholder = engine.get("signals_placeholder")
-        if not signals_placeholder:
+        """
+        Перемальовує картки під поточний список активів.
+
+        Картки більше нічого не рахують самі — вони тільки показують те, що
+        приніс такт живого циклу. Раніше кожне оновлення інтерфейсу запускало
+        власний прохід мережі, і це був окремий, ні з чим не звірений результат.
+        """
+        placeholder = engine.get("trade_cards")
+        if not placeholder:
             return
-            
-        # Якщо QScrollArea ще не створена, створюємо її
+
         if not hasattr(self, 'signals_scroll'):
+            from PyQt6.QtWidgets import QSizePolicy
+
+            # Картки мають з'їдати вільну висоту вкладки, інакше вони тиснуться
+            # в кілька пікселів між рядком стану й журналом
+            placeholder.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                      QSizePolicy.Policy.Expanding)
+            placeholder.setMinimumHeight(260)
+
             self.signals_scroll = QScrollArea()
             self.signals_scroll.setWidgetResizable(True)
-            self.signals_scroll.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
-            
+            self.signals_scroll.setStyleSheet(
+                "QScrollArea { border: none; background-color: transparent; }")
+
             self.signals_container = QWidget()
             self.signals_container.setObjectName("signals_container")
-            self.signals_container.setStyleSheet("QWidget#signals_container { background-color: transparent; }")
-            
-            # Використовуємо FlowLayout щоб уникнути горизонтальної прокрутки
+            self.signals_container.setStyleSheet(
+                "QWidget#signals_container { background-color: transparent; }")
+
+            # FlowLayout, щоб картки переносились рядками без горизонтальної прокрутки
             self.signals_grid = FlowLayout(self.signals_container)
             self.signals_grid.setSpacing(15)
-            
             self.signals_scroll.setWidget(self.signals_container)
-            
-            # Додаємо у placeholder
-            layout = signals_placeholder.layout()
+
+            layout = placeholder.layout()
             if not layout:
-                from PyQt6.QtWidgets import QVBoxLayout
-                layout = QVBoxLayout(signals_placeholder)
+                layout = QVBoxLayout(placeholder)
                 layout.setContentsMargins(0, 0, 0, 0)
             layout.addWidget(self.signals_scroll)
-                
-        # Очищуємо існуючі віджети
+
         while self.signals_grid.count():
             child = self.signals_grid.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
-                
-        # Отримуємо вибрані активи
-        input_assets = engine.get("input_assets_list")
-        if not input_assets: return
-        assets_list = [a.strip() for a in input_assets.text().split(",") if a.strip()]
-        
-        rb_crypto = engine.get("rb_crypto")
-        market_type = "Crypto" if (rb_crypto and rb_crypto.isChecked()) else "Forex"
-        timeframe = "15m"
-        if hasattr(self, 'tf_buttons'):
-            for tf, rb in self.tf_buttons:
-                if rb.isChecked():
-                    timeframe = tf
-                    break
-        
+
         self.signal_cards = {}
-        for asset in assets_list:
+        for asset in self.selected_assets():
             card = SignalCard(asset)
-            card.reason_label.setText("Аналіз ринку...")
+            card.reason_label.setText("Очікування запуску...")
             self.signal_cards[asset] = card
             self.signals_grid.addWidget(card)
-            
-        if not hasattr(self, 'db'):
-            # Якщо БД ще не підключена, залишаємо картки в стані очікування
-            for asset, card in self.signal_cards.items():
-                card.reason_label.setText("Очікування запуску...")
-            return
-
-        # Зупиняємо попередній потік, якщо він ще працює
-        if self.signals_worker and self.signals_worker.isRunning():
-            self.signals_worker.is_running = False
-            self.signals_worker.wait()
-            
-        self.signals_worker = SignalsWorker(assets_list, timeframe, market_type)
-        self.signals_worker.result_ready.connect(self._on_signal_ready)
-        self.signals_worker.start()
 
     @_handle_error
-    def _on_signal_ready(self, asset, signal_data):
-        if asset in self.signal_cards:
-            card = self.signal_cards[asset]
-            if "error" in signal_data:
-                card.reason_label.setText(signal_data["error"])
-            else:
-                card.update_signal(signal_data)
+    def selected_assets(self) -> list:
+        "Активи, вибрані в налаштуваннях"
+        field = engine.get("input_assets_list")
+        if not field:
+            return []
+        return [a.strip() for a in field.text().split(",") if a.strip()]
+
+    #------------------------------
+    # Кнопка Старт / Стоп
+    #------------------------------
+
+    @_handle_error
+    def on_toggle_trading(self):
+        """
+        Одна кнопка на два стани. Натиснув — пішло, натиснув удруге — спинилось.
+
+        Живий режим підтверджується вікном ОДИН раз за запуск програми:
+        далі кнопка стартує без питань, бо серед такту питати вже нікому.
+        """
+        if self.trading_worker and self.trading_worker.isRunning():
+            self.trade_log("Зупинка... поточний такт дороблюється до кінця.")
+            self.trading_worker.stop()
+            self.set_trade_button(running=False, text="⏳  Зупиняється...")
+            return
+
+        assets = self.selected_assets()
+        if not assets:
+            self.trade_status("Не вибрано жодного активу — зайди в Налаштування.", ok=False)
+            return
+
+        live = app_config.has_bybit_keys()
+        if live and not self.live_confirmed and not self.confirm_live(assets):
+            return
+
+        self.update_signals_ui()
+
+        self.trading_worker = TradingWorker(assets, live=live,
+                                            paper_balance=self.configured_balance(),
+                                            new_test=self.new_test)
+        self.trading_worker.state_ready.connect(self._on_trade_state)
+        self.trading_worker.log_line.connect(self.trade_log)
+        self.trading_worker.finished_run.connect(self._on_trade_finished)
+        self.trading_worker.start()
+
+        self.set_trade_button(running=True)
+        self.trade_status("Цикл запущено. Качаємо дані, далі чекаємо закриття свічки.", ok=True)
+
+        mode = engine.get("trades_mode")
+        if mode:
+            mode.setText("ЖИВИЙ РЕЖИМ — СПРАВЖНІ ОРДЕРИ" if live
+                         else "БЕЗ КЛЮЧІВ — ОРДЕРИ НЕ СТАВЛЯТЬСЯ")
+
+    @_handle_error
+    def confirm_live(self, assets: list) -> bool:
+        """
+        Одноразове підтвердження перед справжніми ордерами.
+
+        Тут же вирішується, від якого депозиту рахувати межу просідання.
+        Якщо тест уже початий, за замовчуванням ПРОДОВЖУЄМО його: інакше
+        перезапуск після втрати відсував би межу за новим, меншим рахунком,
+        і домовлена сума ризику розтягувалась би без кінця.
+        """
+        from PyQt6.QtWidgets import QMessageBox
+        from utils.algorithms.brain.ExchangeAccount import ExchangeAccount
+
+        saved = ExchangeAccount.saved_baseline()
+        self.new_test = False
+
+        details = (
+            f"Активів: {len(assets)} ({', '.join(assets)})\n"
+            f"Застава на угоду: 10% депозиту, рахується один раз\n"
+            f"Плече: 20x (10x, якщо біржа не дасть 20)\n"
+            f"Поріг впевненості знято — заходимо на найкращому сигналі\n"
+        )
+
+        box = QMessageBox(engine.get("main_window"))
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Жива торгівля")
+        box.setText("Запустити ЖИВУ торгівлю справжніми грошима?")
+
+        if saved:
+            start = float(saved.get('start_balance', 0))
+            limit = start * float(saved.get('max_drawdown_pct', 20)) / 100.0
+            box.setInformativeText(
+                details +
+                f"\nТест уже початий {str(saved.get('recorded_at', ''))[:16].replace('T', ' ')}.\n"
+                f"Депозит ${start:.2f}, зупинка на ${start - limit:.2f} "
+                f"(запас ${limit:.2f}).\n\n"
+                f"«Yes» — продовжити цей тест.\n"
+                f"«Reset» — почати новий відлік від сьогоднішнього рахунку."
+            )
+            box.setStandardButtons(QMessageBox.StandardButton.Yes
+                                   | QMessageBox.StandardButton.Reset
+                                   | QMessageBox.StandardButton.Cancel)
+        else:
+            box.setInformativeText(
+                details +
+                "\nДепозит заміряється зараз, і від нього рахується межа 20%.\n"
+                "Ордери підуть на Bybit одразу після першого сигналу."
+            )
+            box.setStandardButtons(QMessageBox.StandardButton.Yes
+                                   | QMessageBox.StandardButton.Cancel)
+
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        answer = box.exec()
+
+        if answer == QMessageBox.StandardButton.Reset:
+            self.new_test = True
+        elif answer != QMessageBox.StandardButton.Yes:
+            self.trade_status("Запуск скасовано.", ok=False)
+            return False
+
+        self.live_confirmed = True
+        return True
+
+    @_handle_error
+    def configured_balance(self) -> float:
+        "Баланс із налаштувань. Потрібен лише тоді, коли біржі немає"
+        field = engine.get("input_account_balance")
+        try:
+            return float(field.text()) if field else 150.0
+        except ValueError:
+            return 150.0
+
+    #------------------------------
+    # Малювання стану такту
+    #------------------------------
+
+    @_handle_error
+    def set_trade_button(self, running: bool, text: str = None):
+        "Перемикає кнопку між Старт і Стоп"
+        button = engine.get("btn_trade")
+        if not button:
+            return
+        button.setText(text or ("■  Стоп" if running else "▶  Старт"))
+        engine._apply_style(button, "danger" if running else "primary")
+
+    @_handle_error
+    def trade_status(self, message: str, ok: bool = True):
+        "Рядок стану під кнопкою"
+        label = engine.get("trade_status")
+        if label:
+            label.setText(message)
+            engine._apply_style(label, "status_ok" if ok else "status_error")
+
+    @_handle_error
+    def trade_log(self, message: str):
+        "Дописує рядок у журнал такту"
+        log = engine.get("trade_log")
+        if not log:
+            return
+        stamp = time.strftime('%H:%M:%S')
+        log.append(f"{stamp}  {message}")
+        log.verticalScrollBar().setValue(log.verticalScrollBar().maximum())
+
+    @_handle_error
+    def _on_trade_state(self, state: dict):
+        "Прийшов стан такту з фонового потоку"
+        balance = engine.get("stat_balance")
+        if balance:
+            balance.setText(f"БАЛАНС\n${state.get('balance', 0):.2f}"
+                            f"  зі ${state.get('start_balance', 0):.2f}")
+
+        margin = engine.get("stat_margin")
+        if margin:
+            margin.setText(f"ЗАСТАВА НА УГОДУ\n${state.get('margin_usd', 0):.2f}")
+
+        drawdown = engine.get("stat_drawdown")
+        if drawdown:
+            value = state.get('drawdown_pct', 0.0)
+            drawdown.setText(f"ПРОСІДАННЯ\n{value:.1f}%  з 20%")
+            engine._apply_style(drawdown, "stat_bad" if value >= 10 else "stat")
+
+        self.update_position_badge(state)
+
+        # Закриті угоди помітно в журналі й окремим рядком стану: інакше
+        # результат промайнув би між тактами й ніде не лишився
+        for event in (state.get('events') or []):
+            self.trade_log(f"Угода {event.get('pair')} закрита: {event.get('reason')} "
+                           f"{event.get('pnl', 0):+.2f} USDT")
+
+        # Картки: те, що мережа сказала по кожному активу
+        best = state.get('signal') or {}
+        for pair, verdict in (state.get('verdicts') or {}).items():
+            card = self.signal_cards.get(pair)
+            if not card:
+                continue
+            horizons = verdict.get('horizons') or {}
+            if not horizons:
+                continue
+
+            # Для обраного активу показуємо ТОЙ горизонт, за яким зайшли,
+            # для решти — найвпевненіший. Інакше картка обраного активу
+            # показувала б інші числа, ніж рядок рішення під кнопкою
+            bars = best.get('horizon') if best.get('pair') == pair else None
+            if bars not in horizons:
+                bars = max(horizons, key=lambda b: horizons[b].get('confidence', 0))
+            top = horizons[bars]
+
+            card.update_signal({
+                'market_state': f'ГОРИЗОНТ {bars}',
+                'signal': top.get('direction', 'NEUTRAL'),
+                'confidence': top.get('confidence', 0.0),
+                'horizons': horizons,
+                'block_reason': '',
+            })
+
+        reason = state.get('block_reason')
+        if state.get('stopped'):
+            self.trade_status(reason or "Рубильник спрацював.", ok=False)
+        elif reason:
+            self.trade_status(reason, ok=True)
+        elif best:
+            self.trade_status(
+                f"Обрано {best.get('pair')} {best.get('direction')} "
+                f"{best.get('confidence', 0) * 100:.1f}% (горизонт {best.get('horizon')})",
+                ok=True)
+
+    @_handle_error
+    def update_position_badge(self, state: dict):
+        "Смужка «позиція відкрита / закрита»"
+        badge = engine.get("position_badge")
+        if not badge:
+            return
+
+        position = state.get('position')
+        if state.get('stopped'):
+            badge.setText(f"ЗУПИНЕНО — {state.get('block_reason', '')}")
+            engine._apply_style(badge, "badge_stopped")
+        elif position:
+            pnl = position.get('pnl')
+            pnl_text = f"  ·  {pnl:+.2f} USDT" if isinstance(pnl, (int, float)) else ""
+            badge.setText(
+                f"ПОЗИЦІЯ ВІДКРИТА  ·  {position.get('pair')} "
+                f"{str(position.get('side', '')).upper()}  ·  "
+                f"вхід {position.get('entry_price')}{pnl_text}")
+            engine._apply_style(badge, "badge_open")
+        elif state.get('waiting'):
+            badge.setText(f"РОЗГІН  ·  {state.get('block_reason', '')}")
+            engine._apply_style(badge, "badge_idle")
+        else:
+            badge.setText("ПОЗИЦІЯ ЗАКРИТА  ·  чекаємо сигналу")
+            engine._apply_style(badge, "badge_idle")
+
+    @_handle_error
+    def _on_trade_finished(self, report: str):
+        "Цикл зупинився — сам чи кнопкою"
+        self.set_trade_button(running=False)
+        self.trade_log(f"Цикл зупинено. {report}")
+        self.trade_status("Зупинено. " + report, ok=False)

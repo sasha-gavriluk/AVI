@@ -1,5 +1,4 @@
 import pandas as pd
-from utils.FinancialAdvisor import FinancialAdvisor
 from utils.OtherUtils import _handle_error
 
 #------------------------------
@@ -14,7 +13,7 @@ class PositionManager:
     #------------------------------
 
     def __init__(self):
-        self.advisor = FinancialAdvisor()
+        pass
 
     #------------------------------
     # Перевірка тези входу
@@ -26,21 +25,19 @@ class PositionManager:
         close_price = current_candle.get('close', 0.0)   # колонка саме 'close' (з малої)
         direction = active_trade.get('direction')
 
-        # 1. Правило інвалідації виду "CLOSE < 1.2345" (задається у Блоці C)
-        invalidation_rule = active_trade.get('invalidation_rule')
-        if invalidation_rule:
-            try:
-                parts = invalidation_rule.split()
-                if len(parts) == 3 and parts[0] == 'CLOSE':
-                    operator = parts[1]
-                    threshold = float(parts[2])
-
-                    if operator == '<' and close_price < threshold:
-                        return "MARKET_CLOSE_THESIS_DEAD"
-                    elif operator == '>' and close_price > threshold:
-                        return "MARKET_CLOSE_THESIS_DEAD"
-            except Exception:
-                pass   # Не змогли розібрати правило — просто тримаємо позицію
+        # 1. Теза мертва, якщо свічка ЗАКРИЛАСЬ за стопом. Це не те саме, що
+        # спрацювання стопа: ціна могла проколоти рівень і повернутись — тоді
+        # тримаємо. А от закриття за ним означає, що ринок передумав.
+        #
+        # Раніше умова приходила рядком "CLOSE < 1.2345" з класу InvalidationRules.
+        # Той клас прибрано 01.09.2026: рядок доводилось складати, передавати
+        # й розбирати назад, хоча вся потрібна інформація вже лежить в active_trade.
+        stop_price = active_trade.get('stop_price')
+        if stop_price and close_price:
+            if direction == 'BUY' and close_price < stop_price:
+                return "MARKET_CLOSE_THESIS_DEAD"
+            if direction == 'SELL' and close_price > stop_price:
+                return "MARKET_CLOSE_THESIS_DEAD"
 
         # 2. Зворотний злам структури (CHoCH проти нашого напрямку).
         # Напрямок зламу беремо зі структури ринку: HH/HL — бичача, LH/LL — ведмежа.
@@ -70,15 +67,12 @@ class PositionManager:
         if active_trade.get('breakeven_done'):
             return "HOLD"
 
-        trigger = self.advisor.calculate_breakeven_trigger_price(
-            entry_price=entry,
-            stop_loss_price=stop,
-            direction='buy' if direction == 'BUY' else 'sell',
-            profit_factor_for_breakeven=1.0
-        )
-        trigger_price = trigger.get('breakeven_trigger_price')
-        if trigger_price is None:
+        # Поріг беззбитку — один розмір ризику в наш бік. Раніше рахувалось
+        # у FinancialAdvisor, перенесено сюди 01.09.2026: модуль на ремонті.
+        risk = abs(entry - stop)
+        if risk <= 0:
             return "HOLD"
+        trigger_price = entry + risk if direction == 'BUY' else entry - risk
 
         reached = (direction == 'BUY' and current_price >= trigger_price) or \
                   (direction == 'SELL' and current_price <= trigger_price)

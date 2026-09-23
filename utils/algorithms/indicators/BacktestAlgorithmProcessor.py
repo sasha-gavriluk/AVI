@@ -201,9 +201,14 @@ class BacktestAlgorithmProcessor(AlgorithmProcessor):
             all_resistances = pd.concat(resistance_levels_list).dropna() if resistance_levels_list else pd.Series(dtype=float)
             all_supports = pd.concat(support_levels_list).dropna() if support_levels_list else pd.Series(dtype=float)
 
-            res_clusters, res_counts = self._cluster_levels(all_resistances, tolerance=0.0005,
+            # Допуск ЗЛИТТЯ (що вважати одним рівнем) свідомо ширший за допуск
+            # «біля рівня» (0.05% у _is_near_level). Коли вони однакові, кожен
+            # кластер стає власним околом, рівнів виходять сотні, і ціна завжди
+            # біля якогось: Near_Resistance був істинним у 98.9% рядків.
+            # При 0.5% виходить ~76 рівнів і ціна біля рівня у ~20% свічок.
+            res_clusters, res_counts = self._cluster_levels(all_resistances, tolerance=0.005,
                                                             return_counts=True)
-            sup_clusters, sup_counts = self._cluster_levels(all_supports, tolerance=0.0005,
+            sup_clusters, sup_counts = self._cluster_levels(all_supports, tolerance=0.005,
                                                             return_counts=True)
 
             self.significant_resistances, self.significant_supports = self._find_significant_levels(
